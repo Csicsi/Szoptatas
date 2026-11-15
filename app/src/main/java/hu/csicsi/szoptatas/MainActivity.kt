@@ -2,6 +2,8 @@ package hu.csicsi.szoptatas
 
 import android.Manifest
 import android.app.Activity
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.CalendarContract.Calendars
@@ -9,6 +11,7 @@ import android.widget.ArrayAdapter
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
+import android.widget.Toast
 
 /** Only screen: grant calendar access and pick the calendar the feeds go into. */
 class MainActivity : Activity() {
@@ -58,7 +61,8 @@ class MainActivity : Activity() {
         contentResolver.query(
             Calendars.CONTENT_URI,
             arrayOf(Calendars._ID, Calendars.CALENDAR_DISPLAY_NAME, Calendars.ACCOUNT_NAME),
-            "${Calendars.CALENDAR_ACCESS_LEVEL}>=? AND ${Calendars.VISIBLE}=1",
+            // no VISIBLE filter: calendars created on the web often start hidden/unsynced here
+            "${Calendars.CALENDAR_ACCESS_LEVEL}>=?",
             arrayOf(Calendars.CAL_ACCESS_CONTRIBUTOR.toString()),
             null,
         )?.use { c ->
@@ -74,8 +78,25 @@ class MainActivity : Activity() {
         if (selected >= 0) list.setItemChecked(selected, true)
 
         list.setOnItemClickListener { _, _, pos, _ ->
-            Feeding.setCalendarId(this, calendarIds[pos])
+            val id = calendarIds[pos]
+            enableSync(id)
+            Feeding.setCalendarId(this, id)
             FeedWidget.refreshAll(this)
+            Toast.makeText(this, R.string.saved, Toast.LENGTH_LONG).show()
+            finish()
+        }
+    }
+
+    /** Make sure the chosen calendar is synced, so its events reach Google Calendar. */
+    private fun enableSync(id: Long) {
+        val values = ContentValues().apply {
+            put(Calendars.SYNC_EVENTS, 1)
+            put(Calendars.VISIBLE, 1)
+        }
+        try {
+            contentResolver.update(ContentUris.withAppendedId(Calendars.CONTENT_URI, id), values, null, null)
+        } catch (e: Exception) {
+            // not allowed on some providers; the user can still enable sync in the calendar app
         }
     }
 }
