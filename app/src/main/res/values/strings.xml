@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Szoptatás</string>
+    <string name="left">Bal</string>
+    <string name="right">Jobb</string>
+    <string name="stop">Stop</string>
+    <string name="setup_needed">Koppints ide: naptár kiválasztása</string>
+    <string name="no_entries">Még nincs bejegyzés</string>
+    <string name="pick_calendar">Melyik naptárba kerüljenek a bejegyzések?</string>
+    <string name="need_permission">Naptár-engedély szükséges.</string>
+</resources>
