@@ -258,9 +258,8 @@ class MainActivity : Activity() {
         val next = last + Reminder.hours(this) * 3_600_000L
         val left = next - System.currentTimeMillis()
         if (left > 0) {
-            val h = left / 3_600_000
-            val m = (left / 60_000) % 60 + if (left % 60_000 > 0) 1 else 0
-            btnIbuprofen.text = "Ibuprofen · ${hhmm(next)}\nmég ${h} ó ${m} p"
+            val mins = (left + 59_999) / 60_000 // round up, so it never shows 0 p early
+            btnIbuprofen.text = "Ibuprofen · ${hhmm(next)}\nmég ${mins / 60} ó ${mins % 60} p"
             btnIbuprofen.background = rounded(OTHER)
         } else {
             val late = -left / 60_000
