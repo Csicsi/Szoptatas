@@ -41,6 +41,15 @@ class MainActivity : Activity() {
     private lateinit var btnVitamin: Button
     private lateinit var btnIbuprofen: Button
     private lateinit var btnReminder: Button
+    private lateinit var btnNotify: Button
+    private lateinit var btnMomPee: Button
+    private var lastIbuprofen: Long? = null
+    private val tick = object : Runnable {
+        override fun run() {
+            updateIbuprofen()
+            handler.postDelayed(this, 30_000)
+        }
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private val reload = Runnable { refresh() }
@@ -76,6 +85,8 @@ class MainActivity : Activity() {
         observing = true
         Feeding.requestSync(this) // pull what the other phone logged
         refresh()
+        handler.removeCallbacks(tick)
+        handler.postDelayed(tick, 30_000)
     }
 
     override fun onPause() {
@@ -83,6 +94,7 @@ class MainActivity : Activity() {
         if (observing) contentResolver.unregisterContentObserver(calendarObserver)
         observing = false
         handler.removeCallbacks(reload)
+        handler.removeCallbacks(tick)
     }
 
     // ---- UI ----
@@ -122,15 +134,20 @@ class MainActivity : Activity() {
             bigButton("Anyatej", FOOD) { askMl("Anyatej") },
         ))
 
-        root.addView(header("Egyéb"))
+        root.addView(header("Anya"))
         btnIbuprofen = bigButton("Ibuprofen", OTHER) {
             log("Ibuprofen")
             Reminder.scheduleAfterDose(this)
         }
+        btnIbuprofen.maxLines = 2 // name + countdown
+        btnMomPee = bigButton("Pisi (ml)", OTHER) { askMomPee() }
+        btnMomPee.maxLines = 2 // name + today's total
+        root.addView(row(btnIbuprofen, btnMomPee))
+
+        root.addView(header("Egyéb"))
         btnVitamin = bigButton("Vitamin", OTHER) { log("Vitamin (Noel)") }
-        btnIbuprofen.maxLines = 2 // name + last dose time
-        root.addView(row(btnIbuprofen, btnVitamin))
         root.addView(row(
+            btnVitamin,
             bigButton("Súly", OTHER) { askWeight() },
             bigButton("Jegyzet", OTHER) { askNote() },
         ))
@@ -168,6 +185,21 @@ class MainActivity : Activity() {
         }
         root.addView(btnReminder)
 
+        btnNotify = Button(this).apply {
+            isAllCaps = false
+            setOnClickListener {
+                val on = !Reminder.notifyOn(this@MainActivity)
+                Reminder.setNotify(this@MainActivity, on)
+                if (on && Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+                }
+                refresh()
+            }
+        }
+        root.addView(btnNotify)
+
         return ScrollView(this).apply { addView(root) }
     }
 
@@ -204,33 +236,63 @@ class MainActivity : Activity() {
 
         btnVitamin.text = if (sum.vitaminToday) "Vitamin ✓" else "Vitamin"
         btnVitamin.background = rounded(if (sum.vitaminToday) DONE else OTHER)
-        btnIbuprofen.text = sum.lastIbuprofen?.let {
-            val h = (System.currentTimeMillis() - it) / 3_600_000
-            val m = (System.currentTimeMillis() - it) / 60_000 % 60
-            "Ibuprofen\n${hhmm(it)} (${h} ó ${m} p)"
-        } ?: "Ibuprofen"
+        lastIbuprofen = sum.lastIbuprofen
+        updateIbuprofen()
 
-        val rh = Reminder.hours(this)
-        btnReminder.text = if (rh == 0) "Ibuprofen emlékeztető: ki" else "Ibuprofen emlékeztető: $rh óra után"
+        btnMomPee.text = if (sum.momPeeCount == 0) "Pisi (ml)" else "Pisi (ml)\nma ${sum.momPeeMl} ml (${sum.momPeeCount}×)"
+
+        btnReminder.text = "Ibuprofen időköz: ${Reminder.hours(this)} óra"
+        btnNotify.text = if (Reminder.notifyOn(this)) "Ibuprofen értesítés: be" else "Ibuprofen értesítés: ki"
 
         WearSync.publish(this)
     }
 
+    /** Countdown to the next dose, based on the interval you set. */
+    private fun updateIbuprofen() {
+        val last = lastIbuprofen
+        if (last == null) {
+            btnIbuprofen.text = "Ibuprofen"
+            btnIbuprofen.background = rounded(OTHER)
+            return
+        }
+        val next = last + Reminder.hours(this) * 3_600_000L
+        val left = next - System.currentTimeMillis()
+        if (left > 0) {
+            val h = left / 3_600_000
+            val m = (left / 60_000) % 60 + if (left % 60_000 > 0) 1 else 0
+            btnIbuprofen.text = "Ibuprofen · ${hhmm(next)}\nmég ${h} ó ${m} p"
+            btnIbuprofen.background = rounded(OTHER)
+        } else {
+            val late = -left / 60_000
+            btnIbuprofen.text = "Ibuprofen · ${hhmm(next)}\nesedékes (${late / 60} ó ${late % 60} p)"
+            btnIbuprofen.background = rounded(DUE)
+        }
+    }
+
     private fun pickReminder() {
-        val options = arrayOf("Ki", "4 óra", "6 óra", "8 óra")
-        val hours = intArrayOf(0, 4, 6, 8)
+        val options = arrayOf("4 óra", "6 óra", "8 óra")
+        val hours = intArrayOf(4, 6, 8)
         AlertDialog.Builder(this)
-            .setTitle("Értesítés az utolsó Ibuprofen után")
+            .setTitle("Ibuprofen időköz")
             .setItems(options) { _, which ->
                 Reminder.setHours(this, hours[which])
-                if (hours[which] > 0 && Build.VERSION.SDK_INT >= 33 &&
-                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
-                }
                 refresh()
             }
             .show()
+    }
+
+    private fun askMomPee() {
+        val ml = numberField("ml")
+        AlertDialog.Builder(this)
+            .setTitle("Anya pisi")
+            .setView(padded(ml))
+            .setPositiveButton("Mentés") { _, _ ->
+                val v = ml.text.toString().trim()
+                if (v.isNotEmpty()) log("Anya pisi $v ml")
+            }
+            .setNegativeButton("Mégse", null)
+            .show()
+        ml.requestFocus()
     }
 
     private fun showSince(wallClockStart: Long) {
@@ -373,5 +435,6 @@ class MainActivity : Activity() {
         val FOOD = Color.parseColor("#2E5A6D")
         val OTHER = Color.parseColor("#3E4E3A")
         val DONE = Color.parseColor("#2E7D32")
+        val DUE = Color.parseColor("#C62828")
     }
 }

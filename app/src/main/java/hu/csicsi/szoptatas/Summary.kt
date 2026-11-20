@@ -14,10 +14,13 @@ data class Summary(
     val vitaminToday: Boolean,
     val lastIbuprofen: Long?,
     val lastWeight: Int?,
+    val momPeeMl: Int,
+    val momPeeCount: Int,
 ) {
     companion object {
         private val FORMULA = Regex("""(?i)(tápszer|táp)\D{0,3}(\d+)\s*ml""")
         private val MILK = Regex("""(?i)(anyatej|tej)\D{0,3}(\d+)\s*ml""")
+        private val MOM_PEE = Regex("""(?i)anya pisi\D{0,3}(\d+)\s*ml""")
         private val WEIGHT = Regex("""(?i)^(súly\s*)?(\d{4,5})\s*(g|gr)\b""")
 
         fun load(ctx: Context): Summary {
@@ -40,6 +43,8 @@ data class Summary(
                 breastMilkMl = today.sumOf { MILK.find(it.title)?.groupValues?.get(2)?.toIntOrNull() ?: 0 },
                 vitaminToday = today.any { it.title.contains("vitamin", ignoreCase = true) },
                 lastIbuprofen = month.lastOrNull { it.title.contains("ibuprofen", ignoreCase = true) }?.start,
+                momPeeMl = today.sumOf { MOM_PEE.find(it.title)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                momPeeCount = today.count { MOM_PEE.containsMatchIn(it.title) },
                 lastWeight = month.lastOrNull { WEIGHT.containsMatchIn(it.title.trim()) }
                     ?.let { WEIGHT.find(it.title.trim())?.groupValues?.get(2)?.toIntOrNull() },
             )

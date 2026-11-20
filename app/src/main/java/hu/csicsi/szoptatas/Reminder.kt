@@ -10,24 +10,32 @@ import android.content.Intent
 import android.os.SystemClock
 
 /**
- * Optional "Ibuprofen: X óra telt el" notification on this phone.
- * It only reports elapsed time; how often to take it is up to you and your doctor.
+ * Ibuprofen interval as you set it (from your doctor's instructions), used for the
+ * countdown on the button and the optional notification on this phone.
  */
 object Reminder {
-    private const val KEY_HOURS = "ibuprofen_hours"
+    private const val KEY_INTERVAL = "ibuprofen_interval"
+    private const val KEY_NOTIFY = "ibuprofen_notify"
     private const val CHANNEL = "ibuprofen"
 
-    /** 0 = off. */
-    fun hours(ctx: Context) = ctx.getSharedPreferences("feeding", Context.MODE_PRIVATE).getInt(KEY_HOURS, 0)
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("feeding", Context.MODE_PRIVATE)
+
+    fun hours(ctx: Context) = prefs(ctx).getInt(KEY_INTERVAL, 6)
 
     fun setHours(ctx: Context, h: Int) {
-        ctx.getSharedPreferences("feeding", Context.MODE_PRIVATE).edit().putInt(KEY_HOURS, h).apply()
-        if (h == 0) cancel(ctx)
+        prefs(ctx).edit().putInt(KEY_INTERVAL, h).apply()
+    }
+
+    fun notifyOn(ctx: Context) = prefs(ctx).getBoolean(KEY_NOTIFY, false)
+
+    fun setNotify(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean(KEY_NOTIFY, on).apply()
+        if (!on) cancel(ctx)
     }
 
     fun scheduleAfterDose(ctx: Context) {
         val h = hours(ctx)
-        if (h <= 0) return
+        if (!notifyOn(ctx)) return
         val at = SystemClock.elapsedRealtime() + h * 60L * 60 * 1000
         alarmManager(ctx).setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending(ctx))
     }
@@ -50,7 +58,7 @@ object Reminder {
         val n = android.app.Notification.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle("Ibuprofen")
-            .setContentText("${hours(ctx)} óra telt el az utolsó óta.")
+            .setContentText("Következő adag ideje (${hours(ctx)} óra telt el).")
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()
