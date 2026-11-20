@@ -3,11 +3,12 @@
 
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:icon="@android:drawable/ic_menu_today"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@android:style/Theme.Material.Light.DarkActionBar">
+        android:theme="@style/AppTheme">
 
         <activity
             android:name=".MainActivity"
@@ -34,5 +35,21 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/feed_widget_info" />
         </receiver>
+        <receiver
+            android:name=".ReminderReceiver"
+            android:exported="false" />
+
+        <!-- start/stop requests from the Wear OS tile -->
+        <service
+            android:name=".WearListener"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/feed"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

@@ -1,8 +1,14 @@
 package hu.csicsi.szoptatas
 
+import android.accounts.Account
+import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
+import android.provider.CalendarContract
+import android.provider.CalendarContract.Calendars
 import android.provider.CalendarContract.Events
 import java.util.TimeZone
 
@@ -14,25 +20,29 @@ enum class Side(val code: String, val label: String) {
 
     companion object {
         fun of(code: String?) = entries.firstOrNull { it.code == code }
+        fun fromTitle(title: String) = if (title.contains(RIGHT.label, ignoreCase = true)) RIGHT else LEFT
     }
 }
 
-data class Session(val side: Side, val start: Long)
+data class Session(val side: Side, val start: Long, val eventId: Long)
 data class LastFeed(val side: Side, val end: Long)
+data class Entry(val title: String, val start: Long, val end: Long)
 
 /**
- * Only the running session lives in the app. Finished feeds are calendar events,
- * so the calendar is the log: edit, add or delete feeds there.
+ * The calendar is the single source of truth, also for the running feed:
+ * start inserts a provisional "Szoptatás – Bal ⏳" event, stop (on any phone
+ * sharing the calendar) closes the newest ⏳ event.
  */
 object Feeding {
     const val TITLE_PREFIX = "Szoptatás"
+    const val RUNNING_MARK = " ⏳"
+    private const val STALE_MARK = " (vége?)"
     private const val MIN_DURATION_MS = 20_000L // shorter taps are treated as mistakes
     private const val POINT_DURATION_MS = 5L * 60 * 1000
+    private const val STALE_AFTER_MS = 2L * 60 * 60 * 1000
     private const val LOOKBACK_MS = 3L * 24 * 60 * 60 * 1000
 
     private const val KEY_CALENDAR = "calendar_id"
-    private const val KEY_SIDE = "run_side"
-    private const val KEY_START = "run_start"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("feeding", Context.MODE_PRIVATE)
 
@@ -42,38 +52,97 @@ object Feeding {
         prefs(ctx).edit().putLong(KEY_CALENDAR, id).commit()
     }
 
-    fun running(ctx: Context): Session? {
-        val p = prefs(ctx)
-        val side = Side.of(p.getString(KEY_SIDE, null)) ?: return null
-        return Session(side, p.getLong(KEY_START, 0L))
+    private fun title(side: Side) = "$TITLE_PREFIX – ${side.label}"
+
+    // ---- running feed ----
+
+    /** All provisional (⏳) feeds, newest first. Stale ones are closed on the way. */
+    private fun openFeeds(ctx: Context): List<Session> {
+        val calendar = calendarId(ctx)
+        if (calendar < 0) return emptyList()
+        val now = System.currentTimeMillis()
+        val result = mutableListOf<Session>()
+        try {
+            ctx.contentResolver.query(
+                Events.CONTENT_URI,
+                arrayOf(Events._ID, Events.TITLE, Events.DTSTART),
+                "${Events.CALENDAR_ID}=? AND ${Events.DELETED}=0 AND ${Events.TITLE} LIKE ? AND ${Events.DTSTART}>=?",
+                arrayOf(calendar.toString(), "%$RUNNING_MARK", (now - LOOKBACK_MS).toString()),
+                "${Events.DTSTART} DESC",
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getLong(0)
+                    val start = c.getLong(2)
+                    val side = Side.fromTitle(c.getString(1).orEmpty())
+                    if (now - start > STALE_AFTER_MS) {
+                        markStale(ctx, id, side)
+                    } else {
+                        result += Session(side, start, id)
+                    }
+                }
+            }
+        } catch (e: SecurityException) {
+            // no permission yet
+        }
+        return result
     }
 
-    /** Starting the other side while one is running logs the current side first. */
-    /** Returns the URI of the side that got logged by switching, if any. */
+    fun running(ctx: Context): Session? = openFeeds(ctx).firstOrNull()
+
+    /** Returns the URI of a feed that got closed by switching sides, if any. */
     fun start(ctx: Context, side: Side): Uri? {
-        val current = running(ctx)
-        if (current?.side == side) return null
-        val logged = if (current != null) stop(ctx) else null
-        prefs(ctx).edit()
-            .putString(KEY_SIDE, side.code)
-            .putLong(KEY_START, System.currentTimeMillis())
-            .commit()
-        return logged
+        val open = openFeeds(ctx)
+        if (open.firstOrNull()?.side == side) return null
+        val closed = open.mapNotNull { close(ctx, it) }.firstOrNull()
+        val now = System.currentTimeMillis()
+        logEvent(ctx, title(side) + RUNNING_MARK, now, now + 60_000)
+        requestSync(ctx)
+        return closed
     }
 
-    /** Returns the created event's URI (for undo), or null if nothing was logged. */
+    /** Closes every open feed; returns the URI of the newest one if it was kept. */
     fun stop(ctx: Context): Uri? {
-        val current = running(ctx) ?: return null
-        val end = System.currentTimeMillis()
-        prefs(ctx).edit().remove(KEY_SIDE).remove(KEY_START).commit()
-        if (end - current.start < MIN_DURATION_MS) return null
-        return logEvent(ctx, "$TITLE_PREFIX – ${current.side.label}", current.start, end)
+        val closed = openFeeds(ctx).mapNotNull { close(ctx, it) }.firstOrNull()
+        requestSync(ctx)
+        return closed
     }
 
-    /** Single point-in-time entry (pelus, bottle, meds, ...) as a short event starting now. */
+    private fun close(ctx: Context, s: Session): Uri? {
+        val uri = ContentUris.withAppendedId(Events.CONTENT_URI, s.eventId)
+        val end = System.currentTimeMillis()
+        return try {
+            if (end - s.start < MIN_DURATION_MS) {
+                ctx.contentResolver.delete(uri, null, null)
+                null
+            } else {
+                val v = ContentValues().apply {
+                    put(Events.TITLE, title(s.side))
+                    put(Events.DTEND, end)
+                }
+                ctx.contentResolver.update(uri, v, null, null)
+                uri
+            }
+        } catch (e: SecurityException) {
+            null
+        }
+    }
+
+    private fun markStale(ctx: Context, id: Long, side: Side) {
+        val v = ContentValues().apply { put(Events.TITLE, title(side) + STALE_MARK) }
+        try {
+            ctx.contentResolver.update(ContentUris.withAppendedId(Events.CONTENT_URI, id), v, null, null)
+        } catch (e: SecurityException) {
+            // ignore
+        }
+    }
+
+    // ---- point entries ----
+
     fun logNow(ctx: Context, title: String): Uri? {
         val now = System.currentTimeMillis()
-        return logEvent(ctx, title, now, now + POINT_DURATION_MS)
+        val uri = logEvent(ctx, title, now, now + POINT_DURATION_MS)
+        requestSync(ctx)
+        return uri
     }
 
     fun logEvent(ctx: Context, title: String, start: Long, end: Long): Uri? {
@@ -99,36 +168,64 @@ object Feeding {
         } catch (e: SecurityException) {
             // ignore; the entry can still be removed in the calendar
         }
+        requestSync(ctx)
     }
 
-    /** Latest feed in the calendar, including ones added or edited by hand. */
-    fun lastFeed(ctx: Context): LastFeed? {
+    // ---- reading ----
+
+    /** All entries of the chosen calendar that start after [since], oldest first. */
+    fun entriesSince(ctx: Context, since: Long): List<Entry> {
         val calendar = calendarId(ctx)
-        if (calendar < 0) return null
-        val now = System.currentTimeMillis()
-        val selection = "${Events.CALENDAR_ID}=? AND ${Events.DELETED}=0 " +
-            "AND ${Events.TITLE} LIKE ? AND ${Events.DTSTART}>=? AND ${Events.DTEND}<=?"
-        val args = arrayOf(
-            calendar.toString(),
-            "$TITLE_PREFIX%",
-            (now - LOOKBACK_MS).toString(),
-            (now + 60_000).toString(),
-        )
-        return try {
+        if (calendar < 0) return emptyList()
+        val list = mutableListOf<Entry>()
+        try {
             ctx.contentResolver.query(
                 Events.CONTENT_URI,
-                arrayOf(Events.TITLE, Events.DTEND),
-                selection,
-                args,
-                "${Events.DTEND} DESC",
+                arrayOf(Events.TITLE, Events.DTSTART, Events.DTEND),
+                "${Events.CALENDAR_ID}=? AND ${Events.DELETED}=0 AND ${Events.DTSTART}>=?",
+                arrayOf(calendar.toString(), since.toString()),
+                "${Events.DTSTART} ASC",
             )?.use { c ->
-                if (!c.moveToFirst()) return null
-                val title = c.getString(0).orEmpty()
-                val side = if (title.contains(Side.RIGHT.label, ignoreCase = true)) Side.RIGHT else Side.LEFT
-                LastFeed(side, c.getLong(1))
+                while (c.moveToNext()) list += Entry(c.getString(0).orEmpty(), c.getLong(1), c.getLong(2))
             }
         } catch (e: SecurityException) {
-            null
+            // no permission yet
+        }
+        return list
+    }
+
+    /** Latest finished feed (app-made titles), for the "next side" hint. */
+    fun lastFeed(ctx: Context): LastFeed? {
+        val now = System.currentTimeMillis()
+        return entriesSince(ctx, now - LOOKBACK_MS)
+            .filter { it.title.startsWith(TITLE_PREFIX) && !it.title.endsWith(RUNNING_MARK) && it.end <= now + 60_000 }
+            .maxByOrNull { it.end }
+            ?.let { LastFeed(Side.fromTitle(it.title), it.end) }
+    }
+
+    // ---- sync ----
+
+    /** Ask Android to sync the calendar now, so the other phone sees changes quickly. */
+    fun requestSync(ctx: Context) {
+        val calendar = calendarId(ctx)
+        if (calendar < 0) return
+        try {
+            ctx.contentResolver.query(
+                ContentUris.withAppendedId(Calendars.CONTENT_URI, calendar),
+                arrayOf(Calendars.ACCOUNT_NAME, Calendars.ACCOUNT_TYPE),
+                null, null, null,
+            )?.use { c ->
+                if (!c.moveToFirst()) return
+                val type = c.getString(1)
+                if (type == CalendarContract.ACCOUNT_TYPE_LOCAL) return
+                val extras = Bundle().apply {
+                    putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
+                    putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+                }
+                ContentResolver.requestSync(Account(c.getString(0), type), CalendarContract.AUTHORITY, extras)
+            }
+        } catch (e: Exception) {
+            // best effort
         }
     }
 }

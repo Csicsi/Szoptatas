@@ -20,11 +20,12 @@ jobs:
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          ./gradlew --no-daemon :app:assembleDebug :wear:assembleDebug
       - name: Publish as release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk szoptatas.apk
+          cp wear/build/outputs/apk/debug/wear-debug.apk szoptatas-wear.apk
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest szoptatas.apk --title "Szoptatás ${GITHUB_SHA::7}" --notes "Automatic build"
+          gh release create latest szoptatas.apk szoptatas-wear.apk --title "Szoptatás ${GITHUB_SHA::7}" --notes "Automatic build"

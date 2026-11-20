@@ -11,8 +11,18 @@ android {
         applicationId = "hu.csicsi.szoptatas"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
+    }
+
+    // Fixed key so updates install over each other and phone + watch share a signature.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("keystore/szoptatas.jks")
+            storePassword = "szoptatas"
+            keyAlias = "szoptatas"
+            keyPassword = "szoptatas"
+        }
     }
 
     compileOptions {
@@ -22,4 +32,8 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    implementation("com.google.android.gms:play-services-wearable:18.2.0")
 }

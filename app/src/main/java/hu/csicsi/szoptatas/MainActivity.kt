@@ -4,6 +4,11 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.database.ContentObserver
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.CalendarContract
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -32,6 +37,21 @@ class MainActivity : Activity() {
     private lateinit var btnRight: Button
     private lateinit var lastLogged: TextView
     private lateinit var undo: Button
+    private lateinit var summary: TextView
+    private lateinit var btnVitamin: Button
+    private lateinit var btnIbuprofen: Button
+    private lateinit var btnReminder: Button
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val reload = Runnable { refresh() }
+    private val calendarObserver = object : ContentObserver(handler) {
+        override fun onChange(selfChange: Boolean) {
+            // debounce: a sync often fires many changes in a row
+            handler.removeCallbacks(reload)
+            handler.postDelayed(reload, 500)
+        }
+    }
+    private var observing = false
 
     private var lastUri: Uri? = null
     private var setupShown = false
@@ -52,7 +72,17 @@ class MainActivity : Activity() {
             }
             return
         }
+        contentResolver.registerContentObserver(CalendarContract.Events.CONTENT_URI, true, calendarObserver)
+        observing = true
+        Feeding.requestSync(this) // pull what the other phone logged
         refresh()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (observing) contentResolver.unregisterContentObserver(calendarObserver)
+        observing = false
+        handler.removeCallbacks(reload)
     }
 
     // ---- UI ----
@@ -62,6 +92,12 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }
+
+        summary = TextView(this).apply {
+            textSize = 15f
+            setPadding(0, 0, 0, dp(8))
+        }
+        root.addView(summary)
 
         status = TextView(this).apply { textSize = 18f }
         timer = Chronometer(this).apply { textSize = 44f; setTypeface(typeface, 1) }
@@ -87,10 +123,13 @@ class MainActivity : Activity() {
         ))
 
         root.addView(header("Egyéb"))
-        root.addView(row(
-            bigButton("Ibuprofen", OTHER) { log("Ibuprofen") },
-            bigButton("Vitamin", OTHER) { log("Vitamin (Noel)") },
-        ))
+        btnIbuprofen = bigButton("Ibuprofen", OTHER) {
+            log("Ibuprofen")
+            Reminder.scheduleAfterDose(this)
+        }
+        btnVitamin = bigButton("Vitamin", OTHER) { log("Vitamin (Noel)") }
+        btnIbuprofen.textSize = 16f
+        root.addView(row(btnIbuprofen, btnVitamin))
         root.addView(row(
             bigButton("Súly", OTHER) { askWeight() },
             bigButton("Jegyzet", OTHER) { askNote() },
@@ -123,6 +162,12 @@ class MainActivity : Activity() {
         }
         root.addView(settings)
 
+        btnReminder = Button(this).apply {
+            isAllCaps = false
+            setOnClickListener { pickReminder() }
+        }
+        root.addView(btnReminder)
+
         return ScrollView(this).apply { addView(root) }
     }
 
@@ -149,6 +194,43 @@ class MainActivity : Activity() {
         }
         btnLeft.background = rounded(left)
         btnRight.background = rounded(right)
+
+        val sum = Summary.load(this)
+        val parts = mutableListOf("Ma: ${sum.feeds} szopi (${sum.feedMinutes} perc)", "pisis ${sum.wet}", "kakis ${sum.dirty}")
+        if (sum.formulaMl > 0) parts += "táp ${sum.formulaMl} ml"
+        if (sum.breastMilkMl > 0) parts += "anyatej ${sum.breastMilkMl} ml"
+        sum.lastWeight?.let { parts += "súly $it g" }
+        summary.text = parts.joinToString(" · ")
+
+        btnVitamin.text = if (sum.vitaminToday) "Vitamin ✓" else "Vitamin"
+        btnVitamin.background = rounded(if (sum.vitaminToday) DONE else OTHER)
+        btnIbuprofen.text = sum.lastIbuprofen?.let {
+            val h = (System.currentTimeMillis() - it) / 3_600_000
+            val m = (System.currentTimeMillis() - it) / 60_000 % 60
+            "Ibuprofen\n${hhmm(it)} (${h} ó ${m} p)"
+        } ?: "Ibuprofen"
+
+        val rh = Reminder.hours(this)
+        btnReminder.text = if (rh == 0) "Ibuprofen emlékeztető: ki" else "Ibuprofen emlékeztető: $rh óra után"
+
+        WearSync.publish(this)
+    }
+
+    private fun pickReminder() {
+        val options = arrayOf("Ki", "4 óra", "6 óra", "8 óra")
+        val hours = intArrayOf(0, 4, 6, 8)
+        AlertDialog.Builder(this)
+            .setTitle("Értesítés az utolsó Ibuprofen után")
+            .setItems(options) { _, which ->
+                Reminder.setHours(this, hours[which])
+                if (hours[which] > 0 && Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+                }
+                refresh()
+            }
+            .show()
     }
 
     private fun showSince(wallClockStart: Long) {
@@ -178,6 +260,7 @@ class MainActivity : Activity() {
         lastUri = uri
         lastLogged.text = "Mentve: $title · ${hhmm(System.currentTimeMillis())}"
         undo.visibility = View.VISIBLE
+        refresh()
     }
 
     private fun askMl(kind: String) {
@@ -285,5 +368,6 @@ class MainActivity : Activity() {
         val PELUS = Color.parseColor("#6D5A2E")
         val FOOD = Color.parseColor("#2E5A6D")
         val OTHER = Color.parseColor("#3E4E3A")
+        val DONE = Color.parseColor("#2E7D32")
     }
 }
