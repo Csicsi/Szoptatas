@@ -10,6 +10,9 @@ import android.os.Bundle
 import android.provider.CalendarContract
 import android.provider.CalendarContract.Calendars
 import android.provider.CalendarContract.Events
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.TimeZone
 
 enum class Side(val code: String, val label: String) {
@@ -20,12 +23,17 @@ enum class Side(val code: String, val label: String) {
 
     companion object {
         fun of(code: String?) = entries.firstOrNull { it.code == code }
-        fun fromTitle(title: String) = if (title.contains(RIGHT.label, ignoreCase = true)) RIGHT else LEFT
+        /** null for hand-written entries that don't name a side. */
+        fun fromTitle(title: String): Side? = when {
+            title.contains("jobb", ignoreCase = true) -> RIGHT
+            title.contains("bal", ignoreCase = true) -> LEFT
+            else -> null
+        }
     }
 }
 
 data class Session(val side: Side, val start: Long, val eventId: Long)
-data class LastFeed(val side: Side, val end: Long)
+data class LastFeed(val side: Side?, val end: Long)
 data class Entry(val title: String, val start: Long, val end: Long)
 
 /**
@@ -34,7 +42,9 @@ data class Entry(val title: String, val start: Long, val end: Long)
  * sharing the calendar) closes the newest ⏳ event.
  */
 object Feeding {
-    const val TITLE_PREFIX = "Szoptatás"
+    private val FEED = Regex("(?i)szopi|szopiz|szoptat")
+    private val RANGE = Regex("""(\d{1,2})[:.](\d{2})\s*-\s*(\d{1,2})[:.](\d{2})""")
+    private val TIME = Regex("""(\d{1,2})[:.](\d{2})""")
     const val RUNNING_MARK = " ⏳"
     private const val STALE_MARK = " (vége?)"
     private const val MIN_DURATION_MS = 20_000L // shorter taps are treated as mistakes
@@ -52,7 +62,44 @@ object Feeding {
         prefs(ctx).edit().putLong(KEY_CALENDAR, id).commit()
     }
 
-    private fun title(side: Side) = "$TITLE_PREFIX – ${side.label}"
+    // Same notation as the hand-written entries: "09:00-10:50 szopi bal"
+    private fun hhmm(t: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(t))
+    private fun runningTitle(side: Side, start: Long) = "${hhmm(start)}- szopi ${side.label.lowercase()}$RUNNING_MARK"
+    private fun closedTitle(side: Side, start: Long, end: Long) = "${hhmm(start)}-${hhmm(end)} szopi ${side.label.lowercase()}"
+    private fun staleTitle(side: Side, start: Long) = "${hhmm(start)}- szopi ${side.label.lowercase()}$STALE_MARK"
+
+    fun isFeed(title: String) = FEED.containsMatchIn(title)
+
+    /** Real start/end from "HH:mm-HH:mm" in the title, anchored to the event's day. */
+    fun parsedRange(e: Entry): Pair<Long, Long>? {
+        val m = RANGE.find(e.title) ?: return null
+        val (h1, m1, h2, m2) = m.destructured
+        var start = atTime(e.start, h1.toInt(), m1.toInt())
+        if (start - e.start > 12 * HOUR) start -= DAY
+        if (e.start - start > 12 * HOUR) start += DAY
+        var end = atTime(start, h2.toInt(), m2.toInt())
+        if (end < start) end += DAY
+        return start to end
+    }
+
+    /** When the feed ended: range end, else the single time in the title, else the event start. */
+    fun feedEnd(e: Entry): Long {
+        parsedRange(e)?.let { return it.second }
+        val m = TIME.find(e.title) ?: return e.start
+        var t = atTime(e.start, m.groupValues[1].toInt(), m.groupValues[2].toInt())
+        if (t - e.start > 12 * HOUR) t -= DAY
+        if (e.start - t > 12 * HOUR) t += DAY
+        return t
+    }
+
+    private fun atTime(day: Long, h: Int, min: Int): Long = java.util.Calendar.getInstance().apply {
+        timeInMillis = day
+        set(java.util.Calendar.HOUR_OF_DAY, h); set(java.util.Calendar.MINUTE, min)
+        set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    private const val HOUR = 60L * 60 * 1000
+    private const val DAY = 24 * HOUR
 
     // ---- running feed ----
 
@@ -73,9 +120,9 @@ object Feeding {
                 while (c.moveToNext()) {
                     val id = c.getLong(0)
                     val start = c.getLong(2)
-                    val side = Side.fromTitle(c.getString(1).orEmpty())
+                    val side = Side.fromTitle(c.getString(1).orEmpty()) ?: Side.LEFT
                     if (now - start > STALE_AFTER_MS) {
-                        markStale(ctx, id, side)
+                        markStale(ctx, id, side, start)
                     } else {
                         result += Session(side, start, id)
                     }
@@ -95,7 +142,7 @@ object Feeding {
         if (open.firstOrNull()?.side == side) return null
         val closed = open.mapNotNull { close(ctx, it) }.firstOrNull()
         val now = System.currentTimeMillis()
-        logEvent(ctx, title(side) + RUNNING_MARK, now, now + 60_000)
+        logEvent(ctx, runningTitle(side, now), now, now + 60_000)
         requestSync(ctx)
         return closed
     }
@@ -116,7 +163,7 @@ object Feeding {
                 null
             } else {
                 val v = ContentValues().apply {
-                    put(Events.TITLE, title(s.side))
+                    put(Events.TITLE, closedTitle(s.side, s.start, end))
                     put(Events.DTEND, end)
                 }
                 ctx.contentResolver.update(uri, v, null, null)
@@ -127,8 +174,8 @@ object Feeding {
         }
     }
 
-    private fun markStale(ctx: Context, id: Long, side: Side) {
-        val v = ContentValues().apply { put(Events.TITLE, title(side) + STALE_MARK) }
+    private fun markStale(ctx: Context, id: Long, side: Side, start: Long) {
+        val v = ContentValues().apply { put(Events.TITLE, staleTitle(side, start)) }
         try {
             ctx.contentResolver.update(ContentUris.withAppendedId(Events.CONTENT_URI, id), v, null, null)
         } catch (e: SecurityException) {
@@ -194,13 +241,15 @@ object Feeding {
         return list
     }
 
-    /** Latest finished feed (app-made titles), for the "next side" hint. */
+    /** Latest finished feed, app-made or hand-written; side is null if the title has none. */
     fun lastFeed(ctx: Context): LastFeed? {
         val now = System.currentTimeMillis()
         return entriesSince(ctx, now - LOOKBACK_MS)
-            .filter { it.title.startsWith(TITLE_PREFIX) && !it.title.endsWith(RUNNING_MARK) && it.end <= now + 60_000 }
-            .maxByOrNull { it.end }
-            ?.let { LastFeed(Side.fromTitle(it.title), it.end) }
+            .filter { isFeed(it.title) && !it.title.endsWith(RUNNING_MARK) }
+            .map { it to feedEnd(it) }
+            .filter { it.second <= now + 60_000 }
+            .maxByOrNull { it.second }
+            ?.let { (e, end) -> LastFeed(Side.fromTitle(e.title), end) }
     }
 
     // ---- sync ----

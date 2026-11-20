@@ -186,10 +186,10 @@ class MainActivity : Activity() {
                 timer.stop()
                 timer.visibility = View.GONE
             } else {
-                val next = last.side.other()
-                status.text = "Utolsó szopi: ${last.side.label}, vége ${hhmm(last.end)} → most: ${next.label}"
+                val next = last.side?.other()
+                status.text = if (next == null) "Utolsó szopi vége ${hhmm(last.end)}" else "Utolsó szopi: ${next.other().label}, vége ${hhmm(last.end)} → most: ${next.label}"
                 showSince(last.end)
-                if (next == Side.LEFT) left = SUGGEST else right = SUGGEST
+                if (next == Side.LEFT) left = SUGGEST else if (next == Side.RIGHT) right = SUGGEST
             }
         }
         btnLeft.background = rounded(left)

@@ -65,11 +65,11 @@ class FeedTileService : TileService() {
             pending != null -> "${if (pending == "left") "Bal" else "Jobb"} indul…"
             state == null -> "Nincs kapcsolat a telefonnal"
             state.running.isNotEmpty() -> "${label(state.running)} fut · ${hhmm(state.start)} óta"
-            state.last.isNotEmpty() -> "Utolsó: ${label(state.last)} ${hhmm(state.lastEnd)}"
+            state.last.isNotEmpty() -> "Utolsó szopi: ${label(state.last)} ${hhmm(state.lastEnd)}".replace("  ", " ")
             else -> "Még nincs bejegyzés"
         }
         val running = if (pending == null) state?.running.orEmpty() else ""
-        val suggest = if (running.isEmpty() && pending == null && state != null && state.last.isNotEmpty()) {
+        val suggest = if (running.isEmpty() && pending == null && state != null && (state.last == "L" || state.last == "R")) {
             if (state.last == "L") "R" else "L"
         } else ""
 

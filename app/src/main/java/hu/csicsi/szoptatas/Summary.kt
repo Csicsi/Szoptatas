@@ -29,10 +29,11 @@ data class Summary(
             val month = Feeding.entriesSince(ctx, now - 30L * 24 * 60 * 60 * 1000)
             val today = month.filter { it.start >= midnight }
 
-            val feeds = today.filter { it.title.startsWith(Feeding.TITLE_PREFIX) && !it.title.endsWith(Feeding.RUNNING_MARK) }
+            val feeds = today.filter { Feeding.isFeed(it.title) && !it.title.endsWith(Feeding.RUNNING_MARK) }
             return Summary(
                 feeds = feeds.size,
-                feedMinutes = feeds.sumOf { (it.end - it.start) / 60_000 },
+                // only entries with "HH:mm-HH:mm" in the title have a known duration
+                feedMinutes = feeds.sumOf { e -> Feeding.parsedRange(e)?.let { (it.second - it.first) / 60_000 } ?: 0L },
                 wet = today.count { it.title.contains("pisis", ignoreCase = true) },
                 dirty = today.count { it.title.contains("kakis", ignoreCase = true) },
                 formulaMl = today.sumOf { FORMULA.find(it.title)?.groupValues?.get(2)?.toIntOrNull() ?: 0 },

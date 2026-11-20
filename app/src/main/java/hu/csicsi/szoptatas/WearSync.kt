@@ -16,7 +16,7 @@ object WearSync {
         val req = PutDataMapRequest.create(STATE_PATH).apply {
             dataMap.putString("running", running?.side?.code ?: "")
             dataMap.putLong("start", running?.start ?: 0L)
-            dataMap.putString("last", last?.side?.code ?: "")
+            dataMap.putString("last", last?.let { it.side?.code ?: "?" } ?: "")
             dataMap.putLong("lastEnd", last?.end ?: 0L)
         }.asPutDataRequest().setUrgent()
         try {
