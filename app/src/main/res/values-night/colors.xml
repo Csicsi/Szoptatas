@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#121114</color>
+    <color name="card">#1E1C21</color>
+    <color name="text">#ECE6F0</color>
+    <color name="muted">#9C95A4</color>
+    <color name="neutral">#2D2A31</color>
+    <color name="on_neutral">#ECE6F0</color>
+    <color name="suggest">#4A2533</color>
+    <color name="chip">#2D2A31</color>
+</resources>

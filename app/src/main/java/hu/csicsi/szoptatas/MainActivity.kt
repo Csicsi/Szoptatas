@@ -4,23 +4,27 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
-import android.database.ContentObserver
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.provider.CalendarContract
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.database.ContentObserver
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.provider.CalendarContract
 import android.text.InputType
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.Chronometer
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -33,26 +37,29 @@ class MainActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var timer: Chronometer
+    private lateinit var chips: LinearLayout
     private lateinit var btnLeft: Button
     private lateinit var btnRight: Button
     private lateinit var lastLogged: TextView
-    private lateinit var undo: Button
-    private lateinit var summary: TextView
+    private lateinit var undo: TextView
     private lateinit var btnVitamin: Button
     private lateinit var btnIbuprofen: Button
-    private lateinit var btnReminder: Button
-    private lateinit var btnNotify: Button
     private lateinit var btnMomPee: Button
+    private lateinit var btnReminder: TextView
+    private lateinit var btnNotify: TextView
+
+    private var lastUri: Uri? = null
+    private var setupShown = false
     private var lastIbuprofen: Long? = null
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val reload = Runnable { refresh() }
     private val tick = object : Runnable {
         override fun run() {
             updateIbuprofen()
             handler.postDelayed(this, 30_000)
         }
     }
-
-    private val handler = Handler(Looper.getMainLooper())
-    private val reload = Runnable { refresh() }
     private val calendarObserver = object : ContentObserver(handler) {
         override fun onChange(selfChange: Boolean) {
             // debounce: a sync often fires many changes in a row
@@ -61,9 +68,6 @@ class MainActivity : Activity() {
         }
     }
     private var observing = false
-
-    private var lastUri: Uri? = null
-    private var setupShown = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -102,115 +106,133 @@ class MainActivity : Activity() {
     private fun buildUi(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+            setPadding(dp(16), dp(20), dp(16), dp(24))
         }
 
-        summary = TextView(this).apply {
+        root.addView(TextView(this).apply {
+            text = getString(R.string.app_name)
+            textSize = 30f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(c(R.color.text))
+            setPadding(dp(4), 0, 0, dp(8))
+        })
+
+        chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        root.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(chips)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = dp(12)
+        })
+
+        // feeding card
+        status = TextView(this).apply {
             textSize = 15f
-            setPadding(0, 0, 0, dp(8))
+            setTextColor(c(R.color.muted))
         }
-        root.addView(summary)
+        timer = Chronometer(this).apply {
+            textSize = 56f
+            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+            setTextColor(c(R.color.text))
+        }
+        btnLeft = bigButton("Bal", c(R.color.neutral), R.drawable.ic_left, c(R.color.on_neutral)) {
+            afterFeedChange(Feeding.start(this, Side.LEFT))
+        }
+        btnRight = bigButton("Jobb", c(R.color.neutral), R.drawable.ic_right, c(R.color.on_neutral)) {
+            afterFeedChange(Feeding.start(this, Side.RIGHT))
+        }
+        val btnStop = bigButton("Stop", STOP, R.drawable.ic_stop) { afterFeedChange(Feeding.stop(this)) }
+        root.addView(card("Szoptatás", status, timer, row(btnLeft, btnRight, btnStop)))
 
-        status = TextView(this).apply { textSize = 18f }
-        timer = Chronometer(this).apply { textSize = 44f; setTypeface(typeface, 1) }
-        root.addView(status)
-        root.addView(timer)
-
-        btnLeft = bigButton("Bal", IDLE) { afterFeedChange(Feeding.start(this, Side.LEFT)) }
-        btnRight = bigButton("Jobb", IDLE) { afterFeedChange(Feeding.start(this, Side.RIGHT)) }
-        val btnStop = bigButton("Stop", STOP) { afterFeedChange(Feeding.stop(this)) }
-        root.addView(row(btnLeft, btnRight, btnStop))
-
-        root.addView(header("Pelus"))
-        root.addView(row(
-            bigButton("Pisis", PELUS) { log("Pisis pelus") },
-            bigButton("Kakis", PELUS) { log("Kakis pelus") },
-            bigButton("Mindkettő", PELUS) { log("Kakis pisis pelus") },
+        // nappies
+        root.addView(card(
+            "Pelus",
+            row(
+                bigButton("Pisis", PEE, R.drawable.ic_drop, PEE_TEXT) { log("Pisis pelus") },
+                bigButton("Kakis", POO, R.drawable.ic_poop) { log("Kakis pelus") },
+                bigButton("Mindkettő", POO, R.drawable.ic_both) { log("Kakis pisis pelus") }.apply {
+                    background = gradient(PEE_DARK, POO)
+                },
+            ),
         ))
 
-        root.addView(header("Etetés"))
-        root.addView(row(
-            bigButton("Tápszer", FOOD) { askMl("Tápszer") },
-            bigButton("Anyatej", FOOD) { askMl("Anyatej") },
+        root.addView(card(
+            "Etetés",
+            row(
+                bigButton("Tápszer", FORMULA, R.drawable.ic_bottle) { askMl("Tápszer") },
+                bigButton("Anyatej", MILK, R.drawable.ic_milk) { askMl("Anyatej") },
+            ),
         ))
 
-        root.addView(header("Anya"))
-        btnIbuprofen = bigButton("Ibuprofen", OTHER) {
+        btnIbuprofen = bigButton("Ibuprofen", PILL, R.drawable.ic_pill) {
             log("Ibuprofen")
             Reminder.scheduleAfterDose(this)
-        }
-        btnIbuprofen.maxLines = 2 // name + countdown
-        btnMomPee = bigButton("Pisi (ml)", OTHER) { askMomPee() }
-        btnMomPee.maxLines = 2 // name + today's total
-        root.addView(row(btnIbuprofen, btnMomPee))
+        }.apply { maxLines = 2 }
+        btnMomPee = bigButton("Pisi (ml)", MOM, R.drawable.ic_cup) { askMomPee() }.apply { maxLines = 2 }
+        root.addView(card("Anya", row(btnIbuprofen, btnMomPee)))
 
-        root.addView(header("Egyéb"))
-        btnVitamin = bigButton("Vitamin", OTHER) { log("Vitamin (Noel)") }
-        root.addView(row(
-            btnVitamin,
-            bigButton("Súly", OTHER) { askWeight() },
-            bigButton("Jegyzet", OTHER) { askNote() },
+        btnVitamin = bigButton("D-vitamin", VITAMIN, R.drawable.ic_sun) { log("D-vitamin (Noel)") }
+        root.addView(card(
+            "Egyéb",
+            row(
+                btnVitamin,
+                bigButton("Súly", GREY, R.drawable.ic_scale) { askWeight() },
+                bigButton("Jegyzet", GREY, R.drawable.ic_note) { askNote() },
+            ),
         ))
 
         lastLogged = TextView(this).apply {
-            textSize = 16f
-            setPadding(0, dp(16), 0, 0)
+            textSize = 14f
+            setTextColor(c(R.color.muted))
         }
-        undo = Button(this).apply {
-            text = "Visszavonás"
-            isAllCaps = false
-            visibility = View.GONE
-            setOnClickListener {
-                lastUri?.let { Feeding.delete(this@MainActivity, it) }
-                lastUri = null
-                lastLogged.text = "Visszavonva."
-                visibility = View.GONE
-                FeedWidget.refreshAll(this@MainActivity)
-                refresh()
+        undo = link("Visszavonás") {
+            lastUri?.let { Feeding.delete(this, it) }
+            lastUri = null
+            lastLogged.text = "Visszavonva."
+            undo.visibility = View.GONE
+            FeedWidget.refreshAll(this)
+            refresh()
+        }.apply { visibility = View.GONE }
+        root.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), dp(4), dp(4), dp(12))
+            addView(lastLogged, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(undo)
+        })
+
+        btnReminder = link("") { pickReminder() }
+        btnNotify = link("") {
+            val on = !Reminder.notifyOn(this)
+            Reminder.setNotify(this, on)
+            if (on && Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
             }
+            refresh()
         }
-        root.addView(lastLogged)
-        root.addView(undo)
-
-        val settings = Button(this).apply {
-            text = "Naptár beállítása"
-            isAllCaps = false
-            setOnClickListener { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }
+        val calendarLink = link("Naptár beállítása") {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
-        root.addView(settings)
+        listOf(btnReminder, btnNotify, calendarLink).forEach { root.addView(it) }
 
-        btnReminder = Button(this).apply {
-            isAllCaps = false
-            setOnClickListener { pickReminder() }
+        return ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            addView(root)
         }
-        root.addView(btnReminder)
-
-        btnNotify = Button(this).apply {
-            isAllCaps = false
-            setOnClickListener {
-                val on = !Reminder.notifyOn(this@MainActivity)
-                Reminder.setNotify(this@MainActivity, on)
-                if (on && Build.VERSION.SDK_INT >= 33 &&
-                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
-                }
-                refresh()
-            }
-        }
-        root.addView(btnNotify)
-
-        return ScrollView(this).apply { addView(root) }
     }
 
     private fun refresh() {
         val running = Feeding.running(this)
-        var left = IDLE
-        var right = IDLE
+        var left = c(R.color.neutral)
+        var right = c(R.color.neutral)
+        var leftText = c(R.color.on_neutral)
+        var rightText = c(R.color.on_neutral)
         if (running != null) {
             status.text = "${running.side.label} fut · kezdés ${hhmm(running.start)}"
             showSince(running.start)
-            if (running.side == Side.LEFT) left = ACTIVE else right = ACTIVE
+            if (running.side == Side.LEFT) { left = ACTIVE; leftText = Color.WHITE } else { right = ACTIVE; rightText = Color.WHITE }
         } else {
             val last = Feeding.lastFeed(this)
             if (last == null) {
@@ -219,27 +241,34 @@ class MainActivity : Activity() {
                 timer.visibility = View.GONE
             } else {
                 val next = last.side?.other()
-                status.text = if (next == null) "Utolsó szopi vége ${hhmm(last.end)}" else "Utolsó szopi: ${next.other().label}, vége ${hhmm(last.end)} → most: ${next.label}"
+                status.text = if (next == null) {
+                    "Utolsó szopi vége ${hhmm(last.end)} · azóta"
+                } else {
+                    "Utolsó: ${next.other().label}, vége ${hhmm(last.end)} · most: ${next.label}"
+                }
                 showSince(last.end)
-                if (next == Side.LEFT) left = SUGGEST else if (next == Side.RIGHT) right = SUGGEST
+                if (next == Side.LEFT) left = c(R.color.suggest) else if (next == Side.RIGHT) right = c(R.color.suggest)
             }
         }
-        btnLeft.background = rounded(left)
-        btnRight.background = rounded(right)
+        styleButton(btnLeft, left, leftText)
+        styleButton(btnRight, right, rightText)
 
         val sum = Summary.load(this)
-        val parts = mutableListOf("Ma: ${sum.feeds} szopi (${sum.feedMinutes} perc)", "pisis ${sum.wet}", "kakis ${sum.dirty}")
-        if (sum.formulaMl > 0) parts += "táp ${sum.formulaMl} ml"
-        if (sum.breastMilkMl > 0) parts += "anyatej ${sum.breastMilkMl} ml"
-        sum.lastWeight?.let { parts += "súly $it g" }
-        summary.text = parts.joinToString(" · ")
+        chips.removeAllViews()
+        chip("${sum.feeds} szopi · ${sum.feedMinutes} perc")
+        chip("pisis ${sum.wet}")
+        chip("kakis ${sum.dirty}")
+        if (sum.formulaMl > 0) chip("táp ${sum.formulaMl} ml")
+        if (sum.breastMilkMl > 0) chip("anyatej ${sum.breastMilkMl} ml")
+        sum.lastWeight?.let { chip("$it g") }
 
-        btnVitamin.text = if (sum.vitaminToday) "Vitamin ✓" else "Vitamin"
-        btnVitamin.background = rounded(if (sum.vitaminToday) DONE else OTHER)
+        btnVitamin.text = if (sum.vitaminToday) "D-vitamin ma kész" else "D-vitamin"
+        btnVitamin.background = rounded(if (sum.vitaminToday) DONE else VITAMIN)
+
         lastIbuprofen = sum.lastIbuprofen
         updateIbuprofen()
 
-        btnMomPee.text = if (sum.momPeeCount == 0) "Pisi (ml)" else "Pisi (ml)\nma ${sum.momPeeMl} ml (${sum.momPeeCount}×)"
+        btnMomPee.text = if (sum.momPeeCount == 0) "Pisi (ml)" else "Pisi · ma ${sum.momPeeMl} ml\n${sum.momPeeCount} alkalom"
 
         btnReminder.text = "Ibuprofen időköz: ${Reminder.hours(this)} óra"
         btnNotify.text = if (Reminder.notifyOn(this)) "Ibuprofen értesítés: be" else "Ibuprofen értesítés: ki"
@@ -252,7 +281,7 @@ class MainActivity : Activity() {
         val last = lastIbuprofen
         if (last == null) {
             btnIbuprofen.text = "Ibuprofen"
-            btnIbuprofen.background = rounded(OTHER)
+            btnIbuprofen.background = rounded(PILL)
             return
         }
         val next = last + Reminder.hours(this) * 3_600_000L
@@ -260,12 +289,42 @@ class MainActivity : Activity() {
         if (left > 0) {
             val mins = (left + 59_999) / 60_000 // round up, so it never shows 0 p early
             btnIbuprofen.text = "Ibuprofen · ${hhmm(next)}\nmég ${mins / 60} ó ${mins % 60} p"
-            btnIbuprofen.background = rounded(OTHER)
+            btnIbuprofen.background = rounded(PILL)
         } else {
             val late = -left / 60_000
             btnIbuprofen.text = "Ibuprofen · ${hhmm(next)}\nesedékes (${late / 60} ó ${late % 60} p)"
             btnIbuprofen.background = rounded(DUE)
         }
+    }
+
+    private fun showSince(wallClockStart: Long) {
+        timer.base = SystemClock.elapsedRealtime() - (System.currentTimeMillis() - wallClockStart)
+        timer.visibility = View.VISIBLE
+        timer.start()
+    }
+
+    // ---- actions ----
+
+    private fun afterFeedChange(logged: Uri?) {
+        if (logged != null) remember(logged, "Szopi")
+        FeedWidget.refreshAll(this)
+        refresh()
+    }
+
+    private fun log(title: String) {
+        remember(Feeding.logNow(this, title), title)
+    }
+
+    private fun remember(uri: Uri?, title: String) {
+        if (uri == null) {
+            lastLogged.text = "Nem sikerült menteni – naptár beállítva?"
+            undo.visibility = View.GONE
+            return
+        }
+        lastUri = uri
+        lastLogged.text = "Mentve: $title · ${hhmm(System.currentTimeMillis())}"
+        undo.visibility = View.VISIBLE
+        refresh()
     }
 
     private fun pickReminder() {
@@ -292,36 +351,6 @@ class MainActivity : Activity() {
             .setNegativeButton("Mégse", null)
             .show()
         ml.requestFocus()
-    }
-
-    private fun showSince(wallClockStart: Long) {
-        timer.base = SystemClock.elapsedRealtime() - (System.currentTimeMillis() - wallClockStart)
-        timer.visibility = View.VISIBLE
-        timer.start()
-    }
-
-    // ---- actions ----
-
-    private fun afterFeedChange(logged: Uri?) {
-        if (logged != null) remember(logged, "Szoptatás")
-        FeedWidget.refreshAll(this)
-        refresh()
-    }
-
-    private fun log(title: String) {
-        remember(Feeding.logNow(this, title), title)
-    }
-
-    private fun remember(uri: Uri?, title: String) {
-        if (uri == null) {
-            lastLogged.text = "Nem sikerült menteni – naptár beállítva?"
-            undo.visibility = View.GONE
-            return
-        }
-        lastUri = uri
-        lastLogged.text = "Mentve: $title · ${hhmm(System.currentTimeMillis())}"
-        undo.visibility = View.VISIBLE
-        refresh()
     }
 
     private fun askMl(kind: String) {
@@ -379,6 +408,52 @@ class MainActivity : Activity() {
 
     // ---- small view helpers ----
 
+    private fun c(id: Int) = getColor(id)
+
+    private fun card(title: String, vararg content: View) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        background = GradientDrawable().apply {
+            setColor(c(R.color.card))
+            cornerRadius = dp(24).toFloat()
+        }
+        setPadding(dp(14), dp(12), dp(14), dp(12))
+        addView(TextView(this@MainActivity).apply {
+            text = title.uppercase()
+            textSize = 12f
+            letterSpacing = 0.12f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(c(R.color.muted))
+            setPadding(dp(4), 0, 0, dp(6))
+        })
+        content.forEach { addView(it) }
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+        ).apply { bottomMargin = dp(12) }
+    }
+
+    private fun chip(text: String) {
+        chips.addView(TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTextColor(c(R.color.text))
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            background = GradientDrawable().apply {
+                setColor(c(R.color.chip))
+                cornerRadius = dp(16).toFloat()
+            }
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+        ).apply { marginEnd = dp(6) })
+    }
+
+    private fun link(text: String, onClick: () -> Unit) = TextView(this).apply {
+        this.text = text
+        textSize = 14f
+        setTextColor(c(R.color.muted))
+        setPadding(dp(8), dp(10), dp(8), dp(10))
+        setOnClickListener { onClick() }
+    }
+
     private fun numberField(hintText: String) = EditText(this).apply {
         hint = hintText
         inputType = InputType.TYPE_CLASS_NUMBER
@@ -389,50 +464,68 @@ class MainActivity : Activity() {
         addView(v, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
     }
 
-    private fun header(text: String) = TextView(this).apply {
-        this.text = text
-        textSize = 16f
-        setPadding(0, dp(16), 0, dp(4))
-    }
-
     private fun row(vararg buttons: Button) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         isBaselineAligned = false // otherwise a wrapped label shifts its button down
         buttons.forEach {
-            addView(it, LinearLayout.LayoutParams(0, dp(72), 1f).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) })
+            addView(it, LinearLayout.LayoutParams(0, dp(88), 1f).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
     }
 
-    private fun bigButton(label: String, color: Int, onClick: () -> Unit) = Button(this).apply {
+    private fun bigButton(
+        label: String,
+        color: Int,
+        icon: Int,
+        textColor: Int = Color.WHITE,
+        onClick: () -> Unit,
+    ) = Button(this).apply {
         text = label
-        textSize = 20f
         isAllCaps = false
+        stateListAnimator = null // flat, no elevation shadow
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         // shrink long labels (e.g. "Mindkettő") instead of wrapping them
-        setAutoSizeTextTypeUniformWithConfiguration(12, 20, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+        setAutoSizeTextTypeUniformWithConfiguration(11, 17, 1, TypedValue.COMPLEX_UNIT_SP)
         maxLines = 1
-        setTextColor(Color.WHITE)
         gravity = Gravity.CENTER
-        background = rounded(color)
+        setPadding(dp(6), dp(10), dp(6), dp(8))
+        setCompoundDrawablesRelativeWithIntrinsicBounds(0, icon, 0, 0)
+        compoundDrawablePadding = dp(2)
+        styleButton(this, color, textColor)
         setOnClickListener { onClick() }
+    }
+
+    private fun styleButton(b: Button, color: Int, textColor: Int) {
+        b.background = rounded(color)
+        b.setTextColor(textColor)
+        b.compoundDrawableTintList = ColorStateList.valueOf(textColor)
     }
 
     private fun rounded(color: Int) = GradientDrawable().apply {
         setColor(color)
-        cornerRadius = dp(14).toFloat()
+        cornerRadius = dp(20).toFloat()
     }
+
+    private fun gradient(from: Int, to: Int) = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR, intArrayOf(from, to),
+    ).apply { cornerRadius = dp(20).toFloat() }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun hhmm(t: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(t))
 
     private companion object {
-        val IDLE = Color.parseColor("#4A4A4A")
-        val ACTIVE = Color.parseColor("#E91E63")
-        val SUGGEST = Color.parseColor("#8A3A5A")
-        val STOP = Color.parseColor("#5A5A5A")
-        val PELUS = Color.parseColor("#6D5A2E")
-        val FOOD = Color.parseColor("#2E5A6D")
-        val OTHER = Color.parseColor("#3E4E3A")
+        val ACTIVE = Color.parseColor("#D6336C")
+        val STOP = Color.parseColor("#4A4650")
+        val PEE = Color.parseColor("#F2C14E")
+        val PEE_TEXT = Color.parseColor("#3A2E05")
+        val PEE_DARK = Color.parseColor("#C9972E")
+        val POO = Color.parseColor("#8B5E3C")
+        val FORMULA = Color.parseColor("#3D7EA6")
+        val MILK = Color.parseColor("#C2577D")
+        val PILL = Color.parseColor("#6B5CA5")
+        val MOM = Color.parseColor("#3E8C82")
+        val VITAMIN = Color.parseColor("#E0892E")
+        val GREY = Color.parseColor("#66707D")
         val DONE = Color.parseColor("#2E7D32")
         val DUE = Color.parseColor("#C62828")
     }
