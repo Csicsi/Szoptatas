@@ -2,6 +2,7 @@ package hu.csicsi.szoptatas
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.provider.CalendarContract.Events
 import java.util.TimeZone
 
@@ -26,6 +27,7 @@ data class LastFeed(val side: Side, val end: Long)
 object Feeding {
     const val TITLE_PREFIX = "Szoptatás"
     private const val MIN_DURATION_MS = 20_000L // shorter taps are treated as mistakes
+    private const val POINT_DURATION_MS = 5L * 60 * 1000
     private const val LOOKBACK_MS = 3L * 24 * 60 * 60 * 1000
 
     private const val KEY_CALENDAR = "calendar_id"
@@ -47,39 +49,55 @@ object Feeding {
     }
 
     /** Starting the other side while one is running logs the current side first. */
-    fun start(ctx: Context, side: Side) {
+    /** Returns the URI of the side that got logged by switching, if any. */
+    fun start(ctx: Context, side: Side): Uri? {
         val current = running(ctx)
-        if (current?.side == side) return
-        if (current != null) stop(ctx)
+        if (current?.side == side) return null
+        val logged = if (current != null) stop(ctx) else null
         prefs(ctx).edit()
             .putString(KEY_SIDE, side.code)
             .putLong(KEY_START, System.currentTimeMillis())
             .commit()
+        return logged
     }
 
-    fun stop(ctx: Context) {
-        val current = running(ctx) ?: return
+    /** Returns the created event's URI (for undo), or null if nothing was logged. */
+    fun stop(ctx: Context): Uri? {
+        val current = running(ctx) ?: return null
         val end = System.currentTimeMillis()
-        if (end - current.start >= MIN_DURATION_MS) {
-            insertEvent(ctx, current.side, current.start, end)
-        }
         prefs(ctx).edit().remove(KEY_SIDE).remove(KEY_START).commit()
+        if (end - current.start < MIN_DURATION_MS) return null
+        return logEvent(ctx, "$TITLE_PREFIX – ${current.side.label}", current.start, end)
     }
 
-    private fun insertEvent(ctx: Context, side: Side, start: Long, end: Long) {
+    /** Single point-in-time entry (pelus, bottle, meds, ...) as a short event starting now. */
+    fun logNow(ctx: Context, title: String): Uri? {
+        val now = System.currentTimeMillis()
+        return logEvent(ctx, title, now, now + POINT_DURATION_MS)
+    }
+
+    fun logEvent(ctx: Context, title: String, start: Long, end: Long): Uri? {
         val calendar = calendarId(ctx)
-        if (calendar < 0) return
+        if (calendar < 0) return null
         val values = ContentValues().apply {
             put(Events.CALENDAR_ID, calendar)
-            put(Events.TITLE, "$TITLE_PREFIX – ${side.label}")
+            put(Events.TITLE, title)
             put(Events.DTSTART, start)
             put(Events.DTEND, end)
             put(Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
         }
-        try {
+        return try {
             ctx.contentResolver.insert(Events.CONTENT_URI, values)
         } catch (e: SecurityException) {
-            // permission revoked; nothing sensible to do from a widget tap
+            null
+        }
+    }
+
+    fun delete(ctx: Context, event: Uri) {
+        try {
+            ctx.contentResolver.delete(event, null, null)
+        } catch (e: SecurityException) {
+            // ignore; the entry can still be removed in the calendar
         }
     }
 
