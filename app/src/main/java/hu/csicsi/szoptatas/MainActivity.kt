@@ -128,7 +128,7 @@ class MainActivity : Activity() {
             Reminder.scheduleAfterDose(this)
         }
         btnVitamin = bigButton("Vitamin", OTHER) { log("Vitamin (Noel)") }
-        btnIbuprofen.textSize = 16f
+        btnIbuprofen.maxLines = 2 // name + last dose time
         root.addView(row(btnIbuprofen, btnVitamin))
         root.addView(row(
             bigButton("Súly", OTHER) { askWeight() },
@@ -336,6 +336,7 @@ class MainActivity : Activity() {
 
     private fun row(vararg buttons: Button) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
+        isBaselineAligned = false // otherwise a wrapped label shifts its button down
         buttons.forEach {
             addView(it, LinearLayout.LayoutParams(0, dp(72), 1f).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
@@ -345,6 +346,9 @@ class MainActivity : Activity() {
         text = label
         textSize = 20f
         isAllCaps = false
+        // shrink long labels (e.g. "Mindkettő") instead of wrapping them
+        setAutoSizeTextTypeUniformWithConfiguration(12, 20, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+        maxLines = 1
         setTextColor(Color.WHITE)
         gravity = Gravity.CENTER
         background = rounded(color)

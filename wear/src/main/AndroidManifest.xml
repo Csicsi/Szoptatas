@@ -5,7 +5,7 @@
 
     <application
         android:icon="@mipmap/ic_launcher"
-        android:label="Szoptatás"
+        android:label="Noel"
         android:theme="@android:style/Theme.DeviceDefault">
 
         <meta-data
@@ -16,7 +16,7 @@
             android:name=".FeedTileService"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
-            android:label="Szoptatás"
+            android:label="Noel"
             android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
             <intent-filter>
                 <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
