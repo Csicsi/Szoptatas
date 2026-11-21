@@ -133,6 +133,7 @@ class MainActivity : Activity() {
                 setTextColor(c(R.color.text))
                 setPadding(dp(4), 0, 0, 0)
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(iconButton(R.drawable.ic_refresh, "Frissítés") { forceSync(it) })
             addView(iconButton(R.drawable.ic_chart, "Áttekintés") {
                 startActivity(Intent(this@MainActivity, DashboardActivity::class.java))
             })
@@ -412,6 +413,7 @@ class MainActivity : Activity() {
             isChecked = Reminder.notifyOn(this@MainActivity)
         }
         menu.menu.add(0, 4, 3, "Naptár beállítása")
+        menu.menu.add(0, 5, 4, "Naptár frissítése most")
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> startActivity(Intent(this, DashboardActivity::class.java))
@@ -427,10 +429,46 @@ class MainActivity : Activity() {
                     showBanner(if (on) "Ibuprofen értesítés bekapcsolva" else "Ibuprofen értesítés kikapcsolva", canUndo = false)
                 }
                 4 -> startActivity(Intent(this, SettingsActivity::class.java))
+                5 -> forceSync(null)
             }
             true
         }
         menu.show()
+    }
+
+    /** Sync with Google now and report when it is done (or give up after 30 s). */
+    private fun forceSync(button: View?) {
+        val account = Feeding.requestSync(this)
+        if (account == null) {
+            showBanner("Ez a naptár nem szinkronizál (helyi naptár?)", canUndo = false)
+            return
+        }
+        showBanner("Frissítés…", canUndo = false)
+        val spin = button?.animate()?.rotationBy(360f * 30)?.setDuration(30_000)?.setInterpolator(null)
+        val started = SystemClock.elapsedRealtime()
+        var sawActive = false
+        val poll = object : Runnable {
+            override fun run() {
+                val active = Feeding.isSyncing(account)
+                if (active) sawActive = true
+                val elapsed = SystemClock.elapsedRealtime() - started
+                val done = (sawActive && !active) || (!active && elapsed > 3_000)
+                if (done || elapsed > 30_000) {
+                    spin?.cancel()
+                    button?.rotation = 0f
+                    refresh()
+                    haptic(done)
+                    showBanner(
+                        if (done) "Naptár frissítve · ${hhmm(System.currentTimeMillis())}"
+                        else "A frissítés még tart – nincs net, vagy az Android késlelteti",
+                        canUndo = false,
+                    )
+                } else {
+                    handler.postDelayed(this, 500)
+                }
+            }
+        }
+        handler.postDelayed(poll, 500)
     }
 
     private fun iconButton(icon: Int, description: String, onClick: (View) -> Unit) =

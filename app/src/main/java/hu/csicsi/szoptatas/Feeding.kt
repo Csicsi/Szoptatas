@@ -254,27 +254,44 @@ object Feeding {
 
     // ---- sync ----
 
-    /** Ask Android to sync the calendar now, so the other phone sees changes quickly. */
-    fun requestSync(ctx: Context) {
+    /** Google account the chosen calendar belongs to; null for local calendars. */
+    fun syncAccount(ctx: Context): Account? {
         val calendar = calendarId(ctx)
-        if (calendar < 0) return
-        try {
+        if (calendar < 0) return null
+        return try {
             ctx.contentResolver.query(
                 ContentUris.withAppendedId(Calendars.CONTENT_URI, calendar),
                 arrayOf(Calendars.ACCOUNT_NAME, Calendars.ACCOUNT_TYPE),
                 null, null, null,
             )?.use { c ->
-                if (!c.moveToFirst()) return
+                if (!c.moveToFirst()) return null
                 val type = c.getString(1)
-                if (type == CalendarContract.ACCOUNT_TYPE_LOCAL) return
-                val extras = Bundle().apply {
-                    putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
-                    putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
-                }
-                ContentResolver.requestSync(Account(c.getString(0), type), CalendarContract.AUTHORITY, extras)
+                if (type == CalendarContract.ACCOUNT_TYPE_LOCAL) null else Account(c.getString(0), type)
             }
         } catch (e: Exception) {
-            // best effort
+            null
         }
+    }
+
+    /** Ask Android to sync the calendar now, so the other phone sees changes quickly. */
+    fun requestSync(ctx: Context): Account? {
+        val account = syncAccount(ctx) ?: return null
+        val extras = Bundle().apply {
+            putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
+            putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+        }
+        try {
+            ContentResolver.requestSync(account, CalendarContract.AUTHORITY, extras)
+        } catch (e: Exception) {
+            return null
+        }
+        return account
+    }
+
+    fun isSyncing(account: Account): Boolean = try {
+        ContentResolver.isSyncActive(account, CalendarContract.AUTHORITY) ||
+            ContentResolver.isSyncPending(account, CalendarContract.AUTHORITY)
+    } catch (e: Exception) {
+        false
     }
 }
