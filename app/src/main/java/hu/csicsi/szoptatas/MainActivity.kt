@@ -21,7 +21,9 @@ import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.HapticFeedbackConstants
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.Chronometer
 import android.widget.EditText
 import android.widget.HorizontalScrollView
@@ -40,8 +42,9 @@ class MainActivity : Activity() {
     private lateinit var chips: LinearLayout
     private lateinit var btnLeft: Button
     private lateinit var btnRight: Button
-    private lateinit var lastLogged: TextView
-    private lateinit var undo: TextView
+    private lateinit var banner: LinearLayout
+    private lateinit var bannerText: TextView
+    private val hideBanner = Runnable { banner.animate().alpha(0f).withEndAction { banner.visibility = View.GONE } }
     private lateinit var btnVitamin: Button
     private lateinit var btnIbuprofen: Button
     private lateinit var btnMomPee: Button
@@ -106,7 +109,7 @@ class MainActivity : Activity() {
     private fun buildUi(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(20), dp(16), dp(24))
+            setPadding(dp(16), dp(20), dp(16), dp(96)) // room to scroll past the banner
         }
 
         root.addView(TextView(this).apply {
@@ -148,9 +151,11 @@ class MainActivity : Activity() {
         root.addView(card(
             "Pelus",
             row(
-                bigButton("Pisis", PEE, R.drawable.ic_drop, PEE_TEXT) { log("Pisis pelus") },
-                bigButton("Kakis", POO, R.drawable.ic_poop) { log("Kakis pelus") },
-                bigButton("Mindkettő", POO, R.drawable.ic_both) { log("Kakis pisis pelus") }.apply {
+                bigButton("Pisis", PEE, R.drawable.ic_drop, PEE_TEXT) { guarded("Pisis pelus", 5 * MIN) { log("Pisis pelus") } },
+                bigButton("Kakis", POO, R.drawable.ic_poop) { guarded("Kakis pelus", 5 * MIN) { log("Kakis pelus") } },
+                bigButton("Mindkettő", POO, R.drawable.ic_both) {
+                    guarded("Kakis pisis pelus", 5 * MIN) { log("Kakis pisis pelus") }
+                }.apply {
                     background = gradient(PEE_DARK, POO)
                 },
             ),
@@ -159,47 +164,32 @@ class MainActivity : Activity() {
         root.addView(card(
             "Etetés",
             row(
-                bigButton("Tápszer", FORMULA, R.drawable.ic_bottle) { askMl("Tápszer") },
-                bigButton("Anyatej", MILK, R.drawable.ic_milk) { askMl("Anyatej") },
+                bigButton("Tápszer", FORMULA, R.drawable.ic_bottle) { guarded("Tápszer", 15 * MIN) { askMl("Tápszer") } },
+                bigButton("Anyatej", MILK, R.drawable.ic_milk) { guarded("Anyatej", 15 * MIN) { askMl("Anyatej") } },
             ),
         ))
 
         btnIbuprofen = bigButton("Ibuprofen", PILL, R.drawable.ic_pill) {
-            log("Ibuprofen")
-            Reminder.scheduleAfterDose(this)
+            guarded("Ibuprofen", 60 * MIN) {
+                log("Ibuprofen")
+                Reminder.scheduleAfterDose(this)
+            }
         }.apply { maxLines = 2 }
-        btnMomPee = bigButton("Pisi (ml)", MOM, R.drawable.ic_cup) { askMomPee() }.apply { maxLines = 2 }
+        btnMomPee = bigButton("Pisi (ml)", MOM, R.drawable.ic_cup) { guarded("Anya pisi", 2 * MIN) { askMomPee() } }.apply { maxLines = 2 }
         root.addView(card("Anya", row(btnIbuprofen, btnMomPee)))
 
-        btnVitamin = bigButton("D-vitamin", VITAMIN, R.drawable.ic_sun) { log("D-vitamin (Noel)") }
+        btnVitamin = bigButton("D-vitamin", VITAMIN, R.drawable.ic_sun) {
+            guarded("vitamin", sinceMidnight = true, contains = true) { log("D-vitamin (Noel)") }
+        }
         root.addView(card(
             "Egyéb",
             row(
                 btnVitamin,
-                bigButton("Súly", GREY, R.drawable.ic_scale) { askWeight() },
+                bigButton("Súly", GREY, R.drawable.ic_scale) { guarded("Súly", 15 * MIN) { askWeight() } },
                 bigButton("Jegyzet", GREY, R.drawable.ic_note) { askNote() },
             ),
         ))
 
-        lastLogged = TextView(this).apply {
-            textSize = 14f
-            setTextColor(c(R.color.muted))
-        }
-        undo = link("Visszavonás") {
-            lastUri?.let { Feeding.delete(this, it) }
-            lastUri = null
-            lastLogged.text = "Visszavonva."
-            undo.visibility = View.GONE
-            FeedWidget.refreshAll(this)
-            refresh()
-        }.apply { visibility = View.GONE }
-        root.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), dp(4), dp(4), dp(12))
-            addView(lastLogged, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(undo)
-        })
 
         btnReminder = link("") { pickReminder() }
         btnNotify = link("") {
@@ -217,10 +207,105 @@ class MainActivity : Activity() {
         }
         listOf(btnReminder, btnNotify, calendarLink).forEach { root.addView(it) }
 
-        return ScrollView(this).apply {
-            isVerticalScrollBarEnabled = false
-            addView(root)
+        // confirmation banner floating at the bottom, with undo
+        bannerText = TextView(this).apply {
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }
+        val undo = TextView(this).apply {
+            text = "VISSZAVONÁS"
+            textSize = 14f
+            letterSpacing = 0.08f
+            setTextColor(Color.parseColor("#F48FB1"))
+            setPadding(dp(12), dp(8), dp(4), dp(8))
+            setOnClickListener { undoLast() }
+        }
+        banner = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(14), dp(14), dp(14))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#2B2830"))
+                cornerRadius = dp(18).toFloat()
+            }
+            elevation = dp(8).toFloat()
+            visibility = View.GONE
+            addView(bannerText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(undo)
+        }
+
+        return FrameLayout(this).apply {
+            addView(ScrollView(this@MainActivity).apply {
+                isVerticalScrollBarEnabled = false
+                addView(root)
+            })
+            addView(banner, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM,
+            ).apply { setMargins(dp(16), 0, dp(16), dp(24)) })
+        }
+    }
+
+    private fun showBanner(text: String, canUndo: Boolean) {
+        bannerText.text = text
+        (banner.getChildAt(1)).visibility = if (canUndo) View.VISIBLE else View.GONE
+        handler.removeCallbacks(hideBanner)
+        banner.animate().cancel()
+        banner.alpha = 0f
+        banner.visibility = View.VISIBLE
+        banner.animate().alpha(1f).setDuration(150)
+        handler.postDelayed(hideBanner, 4_000)
+    }
+
+    private fun haptic(ok: Boolean) {
+        val type = when {
+            Build.VERSION.SDK_INT < 30 -> HapticFeedbackConstants.VIRTUAL_KEY
+            ok -> HapticFeedbackConstants.CONFIRM
+            else -> HapticFeedbackConstants.REJECT
+        }
+        window.decorView.performHapticFeedback(type)
+    }
+
+    private fun undoLast() {
+        lastUri?.let { Feeding.delete(this, it) }
+        lastUri = null
+        showBanner("Visszavonva", canUndo = false)
+        FeedWidget.refreshAll(this)
+        refresh()
+    }
+
+    /**
+     * Asks before logging the same thing again within [windowMs] (or again today),
+     * to catch double taps and both parents logging the same nappy.
+     */
+    private fun guarded(
+        kind: String,
+        windowMs: Long = 0,
+        sinceMidnight: Boolean = false,
+        contains: Boolean = false,
+        action: () -> Unit,
+    ) {
+        val now = System.currentTimeMillis()
+        val since = if (sinceMidnight) {
+            java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+        } else now - windowMs
+        val previous = Feeding.entriesSince(this, since).lastOrNull {
+            if (contains) it.title.contains(kind, ignoreCase = true) else it.title.startsWith(kind, ignoreCase = true)
+        }
+        if (previous == null) {
+            action()
+            return
+        }
+        val label = previous.title.substringBefore(" (")
+        AlertDialog.Builder(this)
+            .setTitle("Már rögzítve")
+            .setMessage("$label ${hhmm(previous.start)}-kor már be lett írva. Mégis hozzáadod?")
+            .setPositiveButton("Igen, újat") { _, _ -> action() }
+            .setNegativeButton("Mégse", null)
+            .show()
     }
 
     private fun refresh() {
@@ -306,7 +391,16 @@ class MainActivity : Activity() {
     // ---- actions ----
 
     private fun afterFeedChange(logged: Uri?) {
-        if (logged != null) remember(logged, "Szopi")
+        haptic(true)
+        val running = Feeding.running(this)
+        when {
+            logged != null -> {
+                lastUri = logged
+                showBanner(if (running != null) "Szopi mentve, ${running.side.label} indul" else "Szopi mentve", canUndo = true)
+            }
+            running != null -> showBanner("${running.side.label} elindítva · ${hhmm(running.start)}", canUndo = false)
+            else -> showBanner("Leállítva", canUndo = false)
+        }
         FeedWidget.refreshAll(this)
         refresh()
     }
@@ -317,13 +411,13 @@ class MainActivity : Activity() {
 
     private fun remember(uri: Uri?, title: String) {
         if (uri == null) {
-            lastLogged.text = "Nem sikerült menteni – naptár beállítva?"
-            undo.visibility = View.GONE
+            haptic(false)
+            showBanner("Nem sikerült menteni – naptár beállítva?", canUndo = false)
             return
         }
+        haptic(true)
         lastUri = uri
-        lastLogged.text = "Mentve: $title · ${hhmm(System.currentTimeMillis())}"
-        undo.visibility = View.VISIBLE
+        showBanner("$title hozzáadva · ${hhmm(System.currentTimeMillis())}", canUndo = true)
         refresh()
     }
 
@@ -528,5 +622,6 @@ class MainActivity : Activity() {
         val GREY = Color.parseColor("#66707D")
         val DONE = Color.parseColor("#2E7D32")
         val DUE = Color.parseColor("#C62828")
+        const val MIN = 60_000L
     }
 }
