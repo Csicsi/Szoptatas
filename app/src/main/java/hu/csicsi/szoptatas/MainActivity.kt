@@ -48,8 +48,16 @@ class MainActivity : Activity() {
     private lateinit var btnVitamin: Button
     private lateinit var btnIbuprofen: Button
     private lateinit var btnMomPee: Button
-    private lateinit var btnReminder: TextView
-    private lateinit var btnNotify: TextView
+    private lateinit var feedCard: LinearLayout
+    private lateinit var badge: TextView
+    private lateinit var badgeDot: View
+    private val pulse by lazy {
+        android.animation.ObjectAnimator.ofFloat(badgeDot, "alpha", 1f, 0.25f).apply {
+            duration = 800
+            repeatMode = android.animation.ValueAnimator.REVERSE
+            repeatCount = android.animation.ValueAnimator.INFINITE
+        }
+    }
 
     private var lastUri: Uri? = null
     private var setupShown = false
@@ -112,12 +120,23 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(20), dp(16), dp(96)) // room to scroll past the banner
         }
 
-        root.addView(TextView(this).apply {
-            text = getString(R.string.app_name)
-            textSize = 30f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(c(R.color.text))
-            setPadding(dp(4), 0, 0, dp(8))
+        // top bar: title, charts button, menu
+        val menuButton = iconButton(R.drawable.ic_menu, "Menü") { showMenu(it) }
+        root.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(8))
+            addView(TextView(this@MainActivity).apply {
+                text = getString(R.string.app_name)
+                textSize = 30f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setTextColor(c(R.color.text))
+                setPadding(dp(4), 0, 0, 0)
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(iconButton(R.drawable.ic_chart, "Áttekintés") {
+                startActivity(Intent(this@MainActivity, DashboardActivity::class.java))
+            })
+            addView(menuButton)
         })
 
         chips = LinearLayout(this).apply {
@@ -132,7 +151,22 @@ class MainActivity : Activity() {
             bottomMargin = dp(12)
         })
 
-        // feeding card
+        // feeding card: state badge (running / pause), status line, timer
+        badgeDot = View(this).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) }
+        }
+        badge = TextView(this).apply {
+            textSize = 13f
+            letterSpacing = 0.1f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        val badgeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(6), dp(14), dp(6))
+            addView(badgeDot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(8) })
+            addView(badge)
+        }
         status = TextView(this).apply {
             textSize = 15f
             setTextColor(c(R.color.muted))
@@ -149,7 +183,8 @@ class MainActivity : Activity() {
             afterFeedChange(Feeding.start(this, Side.RIGHT))
         }
         val btnStop = bigButton("Stop", STOP, R.drawable.ic_stop) { afterFeedChange(Feeding.stop(this)) }
-        root.addView(card("Szoptatás", status, timer, row(btnLeft, btnRight, btnStop)))
+        feedCard = card("Szoptatás", wrap(badgeRow), status, timer, row(btnLeft, btnRight, btnStop))
+        root.addView(feedCard)
 
         // nappies
         root.addView(card(
@@ -195,24 +230,6 @@ class MainActivity : Activity() {
         ))
 
 
-        btnReminder = link("") { pickReminder() }
-        btnNotify = link("") {
-            val on = !Reminder.notifyOn(this)
-            Reminder.setNotify(this, on)
-            if (on && Build.VERSION.SDK_INT >= 33 &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-            ) {
-                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
-            }
-            refresh()
-        }
-        val calendarLink = link("Naptár beállítása") {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }
-        val dashboardLink = link("Áttekintés, grafikonok") {
-            startActivity(Intent(this, DashboardActivity::class.java))
-        }
-        listOf(dashboardLink, btnReminder, btnNotify, calendarLink).forEach { root.addView(it) }
 
         // confirmation banner floating at the bottom, with undo
         bannerText = TextView(this).apply {
@@ -321,8 +338,9 @@ class MainActivity : Activity() {
         var right = c(R.color.neutral)
         var leftText = c(R.color.on_neutral)
         var rightText = c(R.color.on_neutral)
+        setRunningLook(running?.side)
         if (running != null) {
-            status.text = "${running.side.label} fut · kezdés ${hhmm(running.start)}"
+            status.text = "kezdés ${hhmm(running.start)}"
             showSince(running.start)
             if (running.side == Side.LEFT) { left = ACTIVE; leftText = Color.WHITE } else { right = ACTIVE; rightText = Color.WHITE }
         } else {
@@ -334,9 +352,9 @@ class MainActivity : Activity() {
             } else {
                 val next = last.side?.other()
                 status.text = if (next == null) {
-                    "Utolsó szopi vége ${hhmm(last.end)} · azóta"
+                    "utolsó szopi vége ${hhmm(last.end)} · azóta eltelt"
                 } else {
-                    "Utolsó: ${next.other().label}, vége ${hhmm(last.end)} · most: ${next.label}"
+                    "utolsó: ${next.other().label}, vége ${hhmm(last.end)} · következő: ${next.label} · azóta eltelt"
                 }
                 showSince(last.end)
                 if (next == Side.LEFT) left = c(R.color.suggest) else if (next == Side.RIGHT) right = c(R.color.suggest)
@@ -362,10 +380,77 @@ class MainActivity : Activity() {
 
         btnMomPee.text = if (sum.momPeeCount == 0) "Pisi (ml)" else "Pisi · ma ${sum.momPeeMl} ml\n${sum.momPeeCount} alkalom"
 
-        btnReminder.text = "Ibuprofen időköz: ${Reminder.hours(this)} óra"
-        btnNotify.text = if (Reminder.notifyOn(this)) "Ibuprofen értesítés: be" else "Ibuprofen értesítés: ki"
 
         WearSync.publish(this)
+    }
+
+    /** Running: rose badge with pulsing dot, rose timer, outlined card. Pause: grey badge, muted timer. */
+    private fun setRunningLook(side: Side?) {
+        val running = side != null
+        badge.text = if (running) "SZOPI FUT · ${side!!.label.uppercase()}" else "SZÜNET"
+        badge.setTextColor(if (running) Color.WHITE else c(R.color.muted))
+        (badge.parent as View).background = GradientDrawable().apply {
+            setColor(if (running) ACTIVE else c(R.color.chip))
+            cornerRadius = dp(14).toFloat()
+        }
+        (badgeDot.background as GradientDrawable).setColor(if (running) Color.WHITE else c(R.color.muted))
+        if (running) { if (!pulse.isStarted) pulse.start() } else { pulse.cancel(); badgeDot.alpha = 1f }
+        timer.setTextColor(if (running) ACTIVE else c(R.color.muted))
+        feedCard.background = GradientDrawable().apply {
+            setColor(c(R.color.card))
+            cornerRadius = dp(24).toFloat()
+            if (running) setStroke(dp(2), ACTIVE)
+        }
+    }
+
+    private fun showMenu(anchor: View) {
+        val menu = android.widget.PopupMenu(this, anchor)
+        menu.menu.add(0, 1, 0, "Áttekintés, grafikonok")
+        menu.menu.add(0, 2, 1, "Ibuprofen időköz: ${Reminder.hours(this)} óra")
+        menu.menu.add(0, 3, 2, "Ibuprofen értesítés").apply {
+            isCheckable = true
+            isChecked = Reminder.notifyOn(this@MainActivity)
+        }
+        menu.menu.add(0, 4, 3, "Naptár beállítása")
+        menu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> startActivity(Intent(this, DashboardActivity::class.java))
+                2 -> pickReminder()
+                3 -> {
+                    val on = !Reminder.notifyOn(this)
+                    Reminder.setNotify(this, on)
+                    if (on && Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+                    }
+                    showBanner(if (on) "Ibuprofen értesítés bekapcsolva" else "Ibuprofen értesítés kikapcsolva", canUndo = false)
+                }
+                4 -> startActivity(Intent(this, SettingsActivity::class.java))
+            }
+            true
+        }
+        menu.show()
+    }
+
+    private fun iconButton(icon: Int, description: String, onClick: (View) -> Unit) =
+        android.widget.ImageButton(this).apply {
+            setImageResource(icon)
+            imageTintList = ColorStateList.valueOf(c(R.color.text))
+            contentDescription = description
+            background = GradientDrawable().apply {
+                setColor(c(R.color.chip))
+                shape = GradientDrawable.OVAL
+            }
+            setOnClickListener { onClick(it) }
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(8) }
+        }
+
+    /** Keeps a view at its natural width inside a vertical card. */
+    private fun wrap(v: View) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        setPadding(0, 0, 0, dp(6))
+        addView(v, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
     }
 
     /** Countdown to the next dose, based on the interval you set. */
@@ -435,6 +520,7 @@ class MainActivity : Activity() {
             .setTitle("Ibuprofen időköz")
             .setItems(options) { _, which ->
                 Reminder.setHours(this, hours[which])
+                showBanner("Ibuprofen időköz: ${hours[which]} óra", canUndo = false)
                 refresh()
             }
             .show()
