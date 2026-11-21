@@ -120,7 +120,11 @@ class MainActivity : Activity() {
             setPadding(dp(4), 0, 0, dp(8))
         })
 
-        chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        chips = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            // today's numbers open the dashboard
+            setOnClickListener { startActivity(Intent(this@MainActivity, DashboardActivity::class.java)) }
+        }
         root.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             addView(chips)
@@ -205,7 +209,10 @@ class MainActivity : Activity() {
         val calendarLink = link("Naptár beállítása") {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
-        listOf(btnReminder, btnNotify, calendarLink).forEach { root.addView(it) }
+        val dashboardLink = link("Áttekintés, grafikonok") {
+            startActivity(Intent(this, DashboardActivity::class.java))
+        }
+        listOf(dashboardLink, btnReminder, btnNotify, calendarLink).forEach { root.addView(it) }
 
         // confirmation banner floating at the bottom, with undo
         bannerText = TextView(this).apply {
