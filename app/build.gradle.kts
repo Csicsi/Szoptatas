@@ -11,8 +11,10 @@ android {
         applicationId = "hu.csicsi.szoptatas"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.0"
+        // CI build number, so every release is a newer version (Obtainium / Android updates)
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = 100 + build
+        versionName = "2.$build"
     }
 
     // Fixed key so updates install over each other and phone + watch share a signature.

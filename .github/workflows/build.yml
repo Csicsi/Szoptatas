@@ -28,4 +28,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk szoptatas.apk
           cp wear/build/outputs/apk/debug/wear-debug.apk szoptatas-wear.apk
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest szoptatas.apk szoptatas-wear.apk --title "Szoptatás ${GITHUB_SHA::7}" --notes "Automatic build"
+          gh release create "v2.${GITHUB_RUN_NUMBER}" szoptatas.apk szoptatas-wear.apk \
+            --title "Noel 2.${GITHUB_RUN_NUMBER}" --notes "${{ github.event.head_commit.message }}"
+          # keep only the 5 newest releases
+          gh release list --limit 100 --json tagName -q '.[5:][].tagName' | xargs -r -n1 gh release delete --yes --cleanup-tag
