@@ -383,6 +383,7 @@ class MainActivity : Activity() {
 
 
         WearSync.publish(this)
+        FeedAlert.schedule(this)
     }
 
     /** Running: rose badge with pulsing dot, rose timer, outlined card. Pause: grey badge, muted timer. */
@@ -412,6 +413,8 @@ class MainActivity : Activity() {
             isCheckable = true
             isChecked = Reminder.notifyOn(this@MainActivity)
         }
+        val fa = FeedAlert.hours(this)
+        menu.menu.add(0, 6, 3, if (fa == 0) "Etetés emlékeztető: ki" else "Etetés emlékeztető: $fa óra után")
         menu.menu.add(0, 4, 3, "Naptár beállítása")
         menu.menu.add(0, 5, 4, "Naptár frissítése most")
         menu.setOnMenuItemClickListener { item ->
@@ -430,6 +433,7 @@ class MainActivity : Activity() {
                 }
                 4 -> startActivity(Intent(this, SettingsActivity::class.java))
                 5 -> forceSync(null)
+                6 -> pickFeedAlert()
             }
             true
         }
@@ -560,6 +564,26 @@ class MainActivity : Activity() {
                 Reminder.setHours(this, hours[which])
                 showBanner("Ibuprofen időköz: ${hours[which]} óra", canUndo = false)
                 refresh()
+            }
+            .show()
+    }
+
+    private fun pickFeedAlert() {
+        val options = arrayOf("Ki", "2 óra", "3 óra", "4 óra")
+        val hours = intArrayOf(0, 2, 3, 4)
+        AlertDialog.Builder(this)
+            .setTitle("Értesítés, ha ennyi ideje nem volt szopi")
+            .setItems(options) { _, which ->
+                FeedAlert.setHours(this, hours[which])
+                if (hours[which] > 0 && Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 3)
+                }
+                showBanner(
+                    if (hours[which] == 0) "Etetés emlékeztető kikapcsolva" else "Értesítés ${hours[which]} óra szünet után",
+                    canUndo = false,
+                )
             }
             .show()
     }

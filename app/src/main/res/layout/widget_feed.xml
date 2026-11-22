@@ -67,4 +67,48 @@
             android:textColor="#FFFFFF"
             android:textSize="22sp" />
     </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:minHeight="48dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_pee"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="4dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_pee"
+            android:text="Pisis"
+            android:textAllCaps="false"
+            android:textColor="#3A2E05"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/btn_poo"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="4dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_poo"
+            android:text="Kakis"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/btn_both"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="4dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_both"
+            android:text="Mindkettő"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp" />
+    </LinearLayout>
 </LinearLayout>

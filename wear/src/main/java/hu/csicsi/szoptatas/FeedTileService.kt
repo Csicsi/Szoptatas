@@ -25,7 +25,10 @@ import java.util.Date
 import java.util.Locale
 
 /** State as published by the phone. */
-private data class TileState(val running: String, val start: Long, val last: String, val lastEnd: Long)
+private data class TileState(
+    val running: String, val start: Long, val last: String, val lastEnd: Long,
+    val msg: String, val msgAt: Long,
+)
 
 private fun label(code: String) = when (code) {
     "L" -> "Bal"
@@ -44,6 +47,10 @@ class FeedTileService : TileService() {
                 send(this, "/feed/$clicked")
                 pending = clicked
             }
+            "pee", "poo", "both" -> {
+                send(this, "/log/$clicked")
+                pending = clicked
+            }
         }
         return CallbackToFutureAdapter.getFuture { completer ->
             readState(this) { state -> completer.set(tile(state, pending)) }
@@ -60,7 +67,12 @@ class FeedTileService : TileService() {
         }
 
     private fun tile(state: TileState?, pending: String?): TileBuilders.Tile {
+        val freshMsg = state?.takeIf { it.msg.isNotEmpty() && System.currentTimeMillis() - it.msgAt < 60_000 }?.msg
         val status = when {
+            pending == "pee" -> "Pisis pelus…"
+            pending == "poo" -> "Kakis pelus…"
+            pending == "both" -> "Kakis pisis pelus…"
+            freshMsg != null -> freshMsg
             pending == "stop" -> "Leállítva…"
             pending != null -> "${if (pending == "left") "Bal" else "Jobb"} indul…"
             state == null -> "Nincs kapcsolat a telefonnal"
@@ -68,23 +80,33 @@ class FeedTileService : TileService() {
             state.last.isNotEmpty() -> "Utolsó szopi: ${label(state.last)} ${hhmm(state.lastEnd)}".replace("  ", " ")
             else -> "Még nincs bejegyzés"
         }
-        val running = if (pending == null) state?.running.orEmpty() else ""
-        val suggest = if (running.isEmpty() && pending == null && state != null && (state.last == "L" || state.last == "R")) {
+        val feedPending = pending in setOf("left", "right", "stop")
+        val running = if (!feedPending) state?.running.orEmpty() else ""
+        val suggest = if (running.isEmpty() && !feedPending && state != null && (state.last == "L" || state.last == "R")) {
             if (state.last == "L") "R" else "L"
         } else ""
 
-        val buttons = LayoutElementBuilders.Row.Builder()
+        val feedRow = LayoutElementBuilders.Row.Builder()
             .addContent(button("left", "Bal", colorFor("L", running, suggest)))
             .addContent(spacer())
             .addContent(button("right", "Jobb", colorFor("R", running, suggest)))
+            .addContent(spacer())
+            .addContent(button("stop", "Stop", STOP))
+            .build()
+        val nappyRow = LayoutElementBuilders.Row.Builder()
+            .addContent(button("pee", "Pisi", PEE, PEE_TEXT))
+            .addContent(spacer())
+            .addContent(button("poo", "Kaki", POO))
+            .addContent(spacer())
+            .addContent(button("both", "Mind", BOTH))
             .build()
 
         val layout = LayoutElementBuilders.Column.Builder()
-            .addContent(text(status, 13f))
-            .addContent(LayoutElementBuilders.Spacer.Builder().setHeight(dp(8f)).build())
-            .addContent(buttons)
-            .addContent(LayoutElementBuilders.Spacer.Builder().setHeight(dp(8f)).build())
-            .addContent(button("stop", "Stop", STOP))
+            .addContent(text(status, 12f))
+            .addContent(LayoutElementBuilders.Spacer.Builder().setHeight(dp(6f)).build())
+            .addContent(feedRow)
+            .addContent(LayoutElementBuilders.Spacer.Builder().setHeight(dp(6f)).build())
+            .addContent(nappyRow)
             .build()
 
         return TileBuilders.Tile.Builder()
@@ -100,22 +122,22 @@ class FeedTileService : TileService() {
         else -> IDLE
     }
 
-    private fun spacer() = LayoutElementBuilders.Spacer.Builder().setWidth(dp(8f)).build()
+    private fun spacer() = LayoutElementBuilders.Spacer.Builder().setWidth(dp(6f)).build()
 
-    private fun text(s: String, size: Float) = LayoutElementBuilders.Text.Builder()
+    private fun text(s: String, size: Float, color: Int = Color.WHITE) = LayoutElementBuilders.Text.Builder()
         .setText(s)
         .setMaxLines(2)
         .setFontStyle(
             LayoutElementBuilders.FontStyle.Builder()
                 .setSize(sp(size))
-                .setColor(argb(Color.WHITE))
+                .setColor(argb(color))
                 .build(),
         )
         .build()
 
-    private fun button(id: String, label: String, color: Int) = LayoutElementBuilders.Box.Builder()
-        .setWidth(dp(if (id == "stop") 72f else 60f))
-        .setHeight(dp(if (id == "stop") 40f else 52f))
+    private fun button(id: String, label: String, color: Int, textColor: Int = Color.WHITE) = LayoutElementBuilders.Box.Builder()
+        .setWidth(dp(48f))
+        .setHeight(dp(44f))
         .setModifiers(
             ModifiersBuilders.Modifiers.Builder()
                 .setClickable(
@@ -127,20 +149,24 @@ class FeedTileService : TileService() {
                 .setBackground(
                     ModifiersBuilders.Background.Builder()
                         .setColor(argb(color))
-                        .setCorner(ModifiersBuilders.Corner.Builder().setRadius(dp(20f)).build())
+                        .setCorner(ModifiersBuilders.Corner.Builder().setRadius(dp(16f)).build())
                         .build(),
                 )
                 .build(),
         )
-        .addContent(text(label, 15f))
+        .addContent(text(label, 13f, textColor))
         .build()
 
     companion object {
         private const val RES_VERSION = "1"
         private val IDLE = Color.parseColor("#4A4A4A")
-        private val ACTIVE = Color.parseColor("#E91E63")
+        private val ACTIVE = Color.parseColor("#D6336C")
         private val SUGGEST = Color.parseColor("#8A3A5A")
         private val STOP = Color.parseColor("#5A5A5A")
+        private val PEE = Color.parseColor("#F2C14E")
+        private val PEE_TEXT = Color.parseColor("#3A2E05")
+        private val POO = Color.parseColor("#8B5E3C")
+        private val BOTH = Color.parseColor("#A97A35")
 
         private fun hhmm(t: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(t))
 
@@ -160,6 +186,7 @@ class FeedTileService : TileService() {
                             state = TileState(
                                 m.getString("running", ""), m.getLong("start"),
                                 m.getString("last", ""), m.getLong("lastEnd"),
+                                m.getString("msg", ""), m.getLong("msgAt"),
                             )
                         }
                     }

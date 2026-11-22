@@ -45,6 +45,10 @@
             android:name=".ReminderReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".FeedAlertReceiver"
+            android:exported="false" />
+
         <!-- start/stop requests from the Wear OS tile -->
         <service
             android:name=".WearListener"
@@ -54,6 +58,10 @@
                 <data
                     android:host="*"
                     android:pathPrefix="/feed"
+                    android:scheme="wear" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/log"
                     android:scheme="wear" />
             </intent-filter>
         </service>

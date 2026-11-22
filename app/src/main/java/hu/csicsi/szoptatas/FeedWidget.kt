@@ -24,16 +24,29 @@ class FeedWidget : AppWidgetProvider() {
             ACTION_LEFT -> Feeding.start(ctx, Side.LEFT)
             ACTION_RIGHT -> Feeding.start(ctx, Side.RIGHT)
             ACTION_STOP -> Feeding.stop(ctx)
+            ACTION_PEE, ACTION_POO, ACTION_BOTH -> {
+                val title = when (intent.action) {
+                    ACTION_PEE -> "Pisis pelus"
+                    ACTION_POO -> "Kakis pelus"
+                    else -> "Kakis pisis pelus"
+                }
+                QuickLog.toast(ctx, title, QuickLog.log(ctx, title))
+            }
             ACTION_REFRESH -> Unit
             else -> {
                 super.onReceive(ctx, intent)
                 return
             }
         }
+        FeedAlert.schedule(ctx)
+        WearSync.publish(ctx)
         refreshAll(ctx)
     }
 
     companion object {
+        private const val ACTION_PEE = "hu.csicsi.szoptatas.PEE"
+        private const val ACTION_POO = "hu.csicsi.szoptatas.POO"
+        private const val ACTION_BOTH = "hu.csicsi.szoptatas.BOTH"
         private const val ACTION_LEFT = "hu.csicsi.szoptatas.LEFT"
         private const val ACTION_RIGHT = "hu.csicsi.szoptatas.RIGHT"
         private const val ACTION_STOP = "hu.csicsi.szoptatas.STOP"
@@ -88,9 +101,12 @@ class FeedWidget : AppWidgetProvider() {
                 v.setOnClickPendingIntent(R.id.btn_right, broadcast(ctx, ACTION_RIGHT, 2))
                 v.setOnClickPendingIntent(R.id.btn_stop, broadcast(ctx, ACTION_STOP, 3))
                 v.setOnClickPendingIntent(R.id.status, broadcast(ctx, ACTION_REFRESH, 4))
+                v.setOnClickPendingIntent(R.id.btn_pee, broadcast(ctx, ACTION_PEE, 5))
+                v.setOnClickPendingIntent(R.id.btn_poo, broadcast(ctx, ACTION_POO, 6))
+                v.setOnClickPendingIntent(R.id.btn_both, broadcast(ctx, ACTION_BOTH, 7))
             } else {
                 val open = openApp(ctx)
-                listOf(R.id.btn_left, R.id.btn_right, R.id.btn_stop, R.id.status)
+                listOf(R.id.btn_left, R.id.btn_right, R.id.btn_stop, R.id.status, R.id.btn_pee, R.id.btn_poo, R.id.btn_both)
                     .forEach { v.setOnClickPendingIntent(it, open) }
             }
             return v
