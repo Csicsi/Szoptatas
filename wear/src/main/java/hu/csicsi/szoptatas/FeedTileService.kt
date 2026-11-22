@@ -76,8 +76,9 @@ class FeedTileService : TileService() {
             pending == "stop" -> "Leállítva…"
             pending != null -> "${if (pending == "left") "Bal" else "Jobb"} indul…"
             state == null -> "Nincs kapcsolat a telefonnal"
-            state.running.isNotEmpty() -> "${label(state.running)} fut · ${hhmm(state.start)} óta"
-            state.last.isNotEmpty() -> "Utolsó szopi: ${label(state.last)} ${hhmm(state.lastEnd)}".replace("  ", " ")
+            state.running.isNotEmpty() -> "${label(state.running)} · ${since(state.start)}"
+            state.last.isNotEmpty() -> "Szünet · ${since(state.lastEnd)}" +
+                (if (state.last == "L" || state.last == "R") " (${label(state.last)})" else "")
             else -> "Még nincs bejegyzés"
         }
         val feedPending = pending in setOf("left", "right", "stop")
@@ -167,6 +168,12 @@ class FeedTileService : TileService() {
         private val PEE_TEXT = Color.parseColor("#3A2E05")
         private val POO = Color.parseColor("#8B5E3C")
         private val BOTH = Color.parseColor("#A97A35")
+
+        /** "23 perc" / "1 ó 20 p"; the tile refreshes every minute. */
+        private fun since(t: Long): String {
+            val m = ((System.currentTimeMillis() - t) / 60_000).coerceAtLeast(0)
+            return if (m < 60) "$m perc" else "${m / 60} ó ${m % 60} p"
+        }
 
         private fun hhmm(t: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(t))
 

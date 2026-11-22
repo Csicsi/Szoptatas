@@ -212,7 +212,7 @@ class MainActivity : Activity() {
         btnIbuprofen = bigButton("Ibuprofen", PILL, R.drawable.ic_pill) {
             guarded("Ibuprofen", 60 * MIN) {
                 log("Ibuprofen")
-                Reminder.scheduleAfterDose(this)
+                Reminder.schedule(this)
             }
         }.apply { maxLines = 2 }
         btnMomPee = bigButton("Pisi (ml)", MOM, R.drawable.ic_cup) { guarded("Anya pisi", 2 * MIN) { askMomPee() } }.apply { maxLines = 2 }
@@ -238,6 +238,14 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }
+        val shift = TextView(this).apply {
+            text = "−5 PERC"
+            textSize = 14f
+            letterSpacing = 0.08f
+            setTextColor(Color.parseColor("#F48FB1"))
+            setPadding(dp(12), dp(8), dp(4), dp(8))
+            setOnClickListener { shiftLast() }
+        }
         val undo = TextView(this).apply {
             text = "VISSZAVONÁS"
             textSize = 14f
@@ -258,6 +266,7 @@ class MainActivity : Activity() {
             visibility = View.GONE
             addView(bannerText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             addView(undo)
+            addView(shift)
         }
 
         return FrameLayout(this).apply {
@@ -271,9 +280,16 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showBanner(text: String, canUndo: Boolean) {
+    /** What "−5 perc" moves: the last point entry, or the start of the running feed. */
+    private var shiftTarget: Uri? = null
+    private var shiftRunning = false
+    private var shiftTitle = ""
+
+    private fun showBanner(text: String, canUndo: Boolean, canShift: Boolean = false) {
         bannerText.text = text
         (banner.getChildAt(1)).visibility = if (canUndo) View.VISIBLE else View.GONE
+        (banner.getChildAt(2)).visibility = if (canShift) View.VISIBLE else View.GONE
+        if (!canShift) { shiftTarget = null; shiftRunning = false }
         handler.removeCallbacks(hideBanner)
         banner.animate().cancel()
         banner.alpha = 0f
@@ -289,6 +305,28 @@ class MainActivity : Activity() {
             else -> HapticFeedbackConstants.REJECT
         }
         window.decorView.performHapticFeedback(type)
+    }
+
+    private fun shiftLast() {
+        val delta = -5 * MIN
+        val newStart = when {
+            shiftRunning -> Feeding.shiftRunningStart(this, delta)
+            shiftTarget != null -> Feeding.shiftEntry(this, shiftTarget!!, delta)
+            else -> null
+        }
+        if (newStart == null) {
+            haptic(false)
+            return
+        }
+        haptic(true)
+        val text = if (shiftRunning) "$shiftTitle elindítva · ${hhmm(newStart)}" else "$shiftTitle · ${hhmm(newStart)}"
+        val keepRunning = shiftRunning
+        val keepTarget = shiftTarget
+        showBanner(text, canUndo = !keepRunning, canShift = true)
+        shiftRunning = keepRunning
+        shiftTarget = keepTarget
+        FeedWidget.refreshAll(this)
+        refresh()
     }
 
     private fun undoLast() {
@@ -384,6 +422,7 @@ class MainActivity : Activity() {
 
         WearSync.publish(this)
         FeedAlert.schedule(this)
+        Reminder.schedule(this)
     }
 
     /** Running: rose badge with pulsing dot, rose timer, outlined card. Pause: grey badge, muted timer. */
@@ -532,7 +571,11 @@ class MainActivity : Activity() {
                 lastUri = logged
                 showBanner(if (running != null) "Szopi mentve, ${running.side.label} indul" else "Szopi mentve", canUndo = true)
             }
-            running != null -> showBanner("${running.side.label} elindítva · ${hhmm(running.start)}", canUndo = false)
+            running != null -> {
+                showBanner("${running.side.label} elindítva · ${hhmm(running.start)}", canUndo = false, canShift = true)
+                shiftRunning = true
+                shiftTitle = running.side.label
+            }
             else -> showBanner("Leállítva", canUndo = false)
         }
         FeedWidget.refreshAll(this)
@@ -543,7 +586,7 @@ class MainActivity : Activity() {
         remember(Feeding.logNow(this, title), title)
     }
 
-    private fun remember(uri: Uri?, title: String) {
+    private fun remember(uri: Uri?, title: String, extra: String = "") {
         if (uri == null) {
             haptic(false)
             showBanner("Nem sikerült menteni – naptár beállítva?", canUndo = false)
@@ -551,7 +594,9 @@ class MainActivity : Activity() {
         }
         haptic(true)
         lastUri = uri
-        showBanner("$title hozzáadva · ${hhmm(System.currentTimeMillis())}", canUndo = true)
+        showBanner("$title hozzáadva · ${hhmm(System.currentTimeMillis())}$extra", canUndo = true, canShift = true)
+        shiftTarget = uri
+        shiftTitle = title
         refresh()
     }
 
@@ -633,7 +678,11 @@ class MainActivity : Activity() {
             .setView(padded(grams))
             .setPositiveButton("Mentés") { _, _ ->
                 val g = grams.text.toString().trim()
-                if (g.isNotEmpty()) log("Súly $g g")
+                val grams = g.toIntOrNull()
+                if (grams != null) {
+                    remember(Feeding.logNow(this, "Súly $grams g"), "Súly $grams g",
+                        " · ${Baby.percentileText(this, grams)} percentilis")
+                }
             }
             .setNegativeButton("Mégse", null)
             .show()

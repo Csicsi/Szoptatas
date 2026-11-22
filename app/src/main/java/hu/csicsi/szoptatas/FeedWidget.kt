@@ -39,6 +39,7 @@ class FeedWidget : AppWidgetProvider() {
             }
         }
         FeedAlert.schedule(ctx)
+        Reminder.schedule(ctx)
         WearSync.publish(ctx)
         refreshAll(ctx)
     }

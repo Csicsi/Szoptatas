@@ -7,16 +7,18 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.SystemClock
 
 /**
  * Ibuprofen interval as you set it (from your doctor's instructions), used for the
- * countdown on the button and the optional notification on this phone.
+ * countdown on the button and the optional notification. The last dose is read from
+ * the shared calendar, so the notification fires on every phone that has it enabled.
  */
 object Reminder {
     private const val KEY_INTERVAL = "ibuprofen_interval"
     private const val KEY_NOTIFY = "ibuprofen_notify"
+    private const val KEY_NOTIFIED = "ibuprofen_notified_for"
     private const val CHANNEL = "ibuprofen"
+    private const val LOOKBACK_MS = 2L * 24 * 60 * 60 * 1000
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("feeding", Context.MODE_PRIVATE)
 
@@ -24,37 +26,45 @@ object Reminder {
 
     fun setHours(ctx: Context, h: Int) {
         prefs(ctx).edit().putInt(KEY_INTERVAL, h).apply()
+        schedule(ctx)
     }
 
     fun notifyOn(ctx: Context) = prefs(ctx).getBoolean(KEY_NOTIFY, false)
 
     fun setNotify(ctx: Context, on: Boolean) {
         prefs(ctx).edit().putBoolean(KEY_NOTIFY, on).apply()
-        if (!on) cancel(ctx)
+        schedule(ctx)
     }
 
-    fun scheduleAfterDose(ctx: Context) {
-        val h = hours(ctx)
+    fun lastDose(ctx: Context): Long? = Feeding.entriesSince(ctx, System.currentTimeMillis() - LOOKBACK_MS)
+        .lastOrNull { it.title.contains("ibuprofen", ignoreCase = true) }?.start
+
+    /** (Re)plan the alarm for "last dose + interval". Cheap; call after any change. */
+    fun schedule(ctx: Context) {
+        val am = ctx.getSystemService(AlarmManager::class.java)
+        val last = lastDose(ctx)
+        if (!notifyOn(ctx) || last == null) {
+            am.cancel(pending(ctx))
+            return
+        }
+        val at = last + hours(ctx) * 3_600_000L
+        if (at <= System.currentTimeMillis()) check(ctx) else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending(ctx))
+    }
+
+    /** Notify once per dose, if the next one is due. */
+    fun check(ctx: Context) {
         if (!notifyOn(ctx)) return
-        val at = SystemClock.elapsedRealtime() + h * 60L * 60 * 1000
-        alarmManager(ctx).setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending(ctx))
-    }
+        val last = lastDose(ctx) ?: return
+        if (System.currentTimeMillis() < last + hours(ctx) * 3_600_000L) {
+            schedule(ctx)
+            return
+        }
+        if (prefs(ctx).getLong(KEY_NOTIFIED, 0L) == last) return
+        prefs(ctx).edit().putLong(KEY_NOTIFIED, last).apply()
 
-    fun cancel(ctx: Context) = alarmManager(ctx).cancel(pending(ctx))
-
-    private fun alarmManager(ctx: Context) = ctx.getSystemService(AlarmManager::class.java)
-
-    private fun pending(ctx: Context) = PendingIntent.getBroadcast(
-        ctx, 20, Intent(ctx, ReminderReceiver::class.java),
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-    )
-
-    fun notify(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Ibuprofen emlékeztető", NotificationManager.IMPORTANCE_HIGH))
-        val open = PendingIntent.getActivity(
-            ctx, 21, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
-        )
+        val open = PendingIntent.getActivity(ctx, 21, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val n = android.app.Notification.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle("Ibuprofen")
@@ -68,8 +78,21 @@ object Reminder {
             // notification permission denied
         }
     }
+
+    private fun pending(ctx: Context) = PendingIntent.getBroadcast(
+        ctx, 20, Intent(ctx, ReminderReceiver::class.java),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 }
 
 class ReminderReceiver : BroadcastReceiver() {
-    override fun onReceive(ctx: Context, intent: Intent) = Reminder.notify(ctx)
+    override fun onReceive(ctx: Context, intent: Intent) {
+        // a dose logged on the other phone may not have synced yet: pull first, then check
+        Feeding.requestSync(ctx)
+        val pending = goAsync()
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            Reminder.check(ctx)
+            pending.finish()
+        }, 8_000)
+    }
 }

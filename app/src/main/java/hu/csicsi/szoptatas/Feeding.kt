@@ -183,6 +183,44 @@ object Feeding {
         }
     }
 
+    // ---- time corrections ("−5 perc" in the banner) ----
+
+    /** Moves a point entry (start and end) by [deltaMs]; returns the new start. */
+    fun shiftEntry(ctx: Context, event: Uri, deltaMs: Long): Long? = try {
+        ctx.contentResolver.query(event, arrayOf(Events.DTSTART, Events.DTEND), null, null, null)?.use { c ->
+            if (!c.moveToFirst()) return null
+            val start = c.getLong(0) + deltaMs
+            val v = ContentValues().apply {
+                put(Events.DTSTART, start)
+                put(Events.DTEND, c.getLong(1) + deltaMs)
+            }
+            ctx.contentResolver.update(event, v, null, null)
+            requestSync(ctx)
+            start
+        }
+    } catch (e: SecurityException) {
+        null
+    }
+
+    /** Moves the start of the running feed (and the time in its title); returns the new start. */
+    fun shiftRunningStart(ctx: Context, deltaMs: Long): Long? {
+        val s = running(ctx) ?: return null
+        val start = s.start + deltaMs
+        val uri = ContentUris.withAppendedId(Events.CONTENT_URI, s.eventId)
+        return try {
+            val v = ContentValues().apply {
+                put(Events.DTSTART, start)
+                put(Events.DTEND, maxOf(System.currentTimeMillis(), start + 60_000))
+                put(Events.TITLE, runningTitle(s.side, start))
+            }
+            ctx.contentResolver.update(uri, v, null, null)
+            requestSync(ctx)
+            start
+        } catch (e: SecurityException) {
+            null
+        }
+    }
+
     // ---- point entries ----
 
     fun logNow(ctx: Context, title: String): Uri? {

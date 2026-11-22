@@ -171,19 +171,14 @@ class DashboardActivity : Activity() {
         ))
     }
 
-    // ---- birth date (defaults to 13 Nov 2026) ----
+    // ---- birth date ----
 
-    private fun prefs() = getSharedPreferences("feeding", MODE_PRIVATE)
-
-    private fun birthDate(): Long = prefs().getLong("birth", Calendar.getInstance().apply {
-        set(2026, Calendar.NOVEMBER, 13, 0, 0, 0); set(Calendar.MILLISECOND, 0)
-    }.timeInMillis)
+    private fun birthDate(): Long = Baby.birth(this)
 
     private fun pickBirthDate() {
         val cal = Calendar.getInstance().apply { timeInMillis = birthDate() }
         DatePickerDialog(this, { _, y, m, d ->
-            val t = Calendar.getInstance().apply { set(y, m, d, 0, 0, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
-            prefs().edit().putLong("birth", t).apply()
+            Baby.setBirth(this, Calendar.getInstance().apply { set(y, m, d, 0, 0, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis)
             render()
         }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
     }

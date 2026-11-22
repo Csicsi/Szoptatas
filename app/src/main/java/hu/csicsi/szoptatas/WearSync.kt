@@ -49,6 +49,7 @@ class WearListener : WearableListenerService() {
             else -> return
         }
         FeedAlert.schedule(this)
+        Reminder.schedule(this)
         FeedWidget.refreshAll(this)
         WearSync.publish(this, message)
     }
