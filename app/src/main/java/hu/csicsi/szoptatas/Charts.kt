@@ -18,6 +18,8 @@ class BarChartView(ctx: Context) : View(ctx) {
     var labels: List<String> = emptyList()
     var series: List<Pair<Int, List<Float>>> = emptyList()
     var unit: String = ""
+    /** Text colour per series; when set, each segment shows its own number. */
+    var segmentText: List<Int>? = null
 
     private val bar = Paint(Paint.ANTI_ALIAS_FLAG)
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -26,12 +28,22 @@ class BarChartView(ctx: Context) : View(ctx) {
         color = ctx.getColor(R.color.muted)
     }
     private val value = Paint(text).apply { color = ctx.getColor(R.color.text) }
+    private val inside = Paint(text).apply {
+        textSize = ctx.dpf(11f)
+        isFakeBoldText = true
+    }
     private val rect = RectF()
 
-    fun set(labels: List<String>, series: List<Pair<Int, List<Float>>>, unit: String = "") {
+    fun set(
+        labels: List<String>,
+        series: List<Pair<Int, List<Float>>>,
+        unit: String = "",
+        segmentText: List<Int>? = null,
+    ) {
         this.labels = labels
         this.series = series
         this.unit = unit
+        this.segmentText = segmentText
         invalidate()
     }
 
@@ -52,13 +64,18 @@ class BarChartView(ctx: Context) : View(ctx) {
         for (i in 0 until n) {
             val cx = slot * i + slot / 2
             var y = bottom
-            series.forEach { (color, values) ->
+            val showSegments = segmentText != null && n <= 14
+            series.forEachIndexed { si, (color, values) ->
                 val v = values.getOrElse(i) { 0f }
-                if (v <= 0f) return@forEach
+                if (v <= 0f) return@forEachIndexed
                 val h = (bottom - top) * v / maxV
                 bar.color = color
                 rect.set(cx - bw / 2, y - h, cx + bw / 2, y)
                 c.drawRoundRect(rect, r, r, bar)
+                if (showSegments && h >= context.dpf(13f)) {
+                    inside.color = segmentText!![si]
+                    c.drawText(trim(v), cx, y - h / 2 + inside.textSize / 3, inside)
+                }
                 y -= h
             }
             if (totals[i] > 0) {

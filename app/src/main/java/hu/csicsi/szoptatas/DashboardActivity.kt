@@ -99,12 +99,17 @@ class DashboardActivity : Activity() {
         content.addView(card(
             "Pelus naponta",
             BarChartView(this).apply {
-                set(labels, listOf(
-                    PEE to stats.map { it.wet.toFloat() },
-                    POO to stats.map { it.dirty.toFloat() },
-                ))
+                set(
+                    labels,
+                    listOf(
+                        PEE to stats.map { it.wet.toFloat() },
+                        POO to stats.map { it.dirty.toFloat() },
+                    ),
+                    segmentText = listOf(Color.parseColor("#3A2E05"), Color.WHITE),
+                )
             },
             legend(PEE to "pisis", POO to "kakis"),
+            note("Ma: ${stats.last().wet} pisis · ${stats.last().dirty} kakis"),
         ))
 
         if (stats.any { it.formulaMl + it.breastMilkMl > 0 }) {
