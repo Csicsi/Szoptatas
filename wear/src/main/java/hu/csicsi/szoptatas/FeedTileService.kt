@@ -103,7 +103,7 @@ class FeedTileService : TileService() {
             .build()
 
         val layout = LayoutElementBuilders.Column.Builder()
-            .addContent(text(status, 12f))
+            .addContent(openApp(text(status, 12f)))
             .addContent(LayoutElementBuilders.Spacer.Builder().setHeight(dp(6f)).build())
             .addContent(feedRow)
             .addContent(LayoutElementBuilders.Spacer.Builder().setHeight(dp(6f)).build())
@@ -122,6 +122,30 @@ class FeedTileService : TileService() {
         suggest -> SUGGEST
         else -> IDLE
     }
+
+    /** Tapping the status line opens the full watch app (scrollable, everything). */
+    private fun openApp(content: LayoutElementBuilders.LayoutElement) = LayoutElementBuilders.Box.Builder()
+        .setModifiers(
+            ModifiersBuilders.Modifiers.Builder()
+                .setClickable(
+                    ModifiersBuilders.Clickable.Builder()
+                        .setId("open")
+                        .setOnClick(
+                            ActionBuilders.LaunchAction.Builder()
+                                .setAndroidActivity(
+                                    ActionBuilders.AndroidActivity.Builder()
+                                        .setPackageName(packageName)
+                                        .setClassName(NoelActivity::class.java.name)
+                                        .build(),
+                                )
+                                .build(),
+                        )
+                        .build(),
+                )
+                .build(),
+        )
+        .addContent(content)
+        .build()
 
     private fun spacer() = LayoutElementBuilders.Spacer.Builder().setWidth(dp(6f)).build()
 

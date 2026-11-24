@@ -63,6 +63,10 @@
                     android:host="*"
                     android:pathPrefix="/log"
                     android:scheme="wear" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/sync"
+                    android:scheme="wear" />
             </intent-filter>
         </service>
     </application>

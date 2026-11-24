@@ -12,6 +12,21 @@
             android:name="com.google.android.wearable.standalone"
             android:value="false" />
 
+        <activity
+            android:name=".NoelActivity"
+            android:exported="true"
+            android:label="Noel"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".AmountActivity"
+            android:exported="false" />
+
         <service
             android:name=".FeedTileService"
             android:exported="true"
