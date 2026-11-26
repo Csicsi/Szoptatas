@@ -18,7 +18,14 @@ for /l %%i in (1,1,15) do (
   timeout /t 2 >nul
 )
 echo.
-echo Watch not found. If this is the first time or it was re-paired, run:
+echo Watch not found automatically.
+echo On the watch open Wireless debugging and read "IP address ^& port" (main screen, NOT "Pair new device").
+set /p ADDR=Type it here (e.g. 192.168.0.171:37123): 
+adb connect %ADDR%
+for /f "tokens=1,2" %%a in ('adb devices ^| findstr /e "device"') do if not defined DEV set "DEV=%%a"
+if defined DEV goto found
+echo.
+echo Still not connected. If the watch was reset or re-paired, first run:
 echo    adb pair IP:PAIRPORT CODE      (from "Pair new device" on the watch)
 echo then start this script again.
 pause & exit /b 1

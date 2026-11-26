@@ -57,7 +57,7 @@ class DashboardActivity : Activity() {
         setContentView(ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
             addView(root)
-        })
+        }.also { it.padForSystemBars() })
     }
 
     override fun onResume() {

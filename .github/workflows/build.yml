@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      HAS_UPLOAD_KEY: ${{ secrets.UPLOAD_KEYSTORE_B64 != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -21,6 +23,25 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon :app:assembleDebug :wear:assembleDebug
+      - name: Build Play bundles (AAB)
+        if: env.HAS_UPLOAD_KEY == 'true'
+        env:
+          UPLOAD_KEYSTORE_B64: ${{ secrets.UPLOAD_KEYSTORE_B64 }}
+          UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+        run: |
+          echo "$UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          export UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks"
+          ./gradlew --no-daemon :app:bundleRelease :wear:bundleRelease
+          mkdir -p play
+          cp app/build/outputs/bundle/release/app-release.aab play/noel-phone.aab
+          cp wear/build/outputs/bundle/release/wear-release.aab play/noel-wear.aab
+          rm -f "$RUNNER_TEMP/upload.jks"
+      - name: Keep Play bundles as build artifact
+        if: env.HAS_UPLOAD_KEY == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: play-bundles
+          path: play/*.aab
       - name: Publish as release
         env:
           GH_TOKEN: ${{ github.token }}

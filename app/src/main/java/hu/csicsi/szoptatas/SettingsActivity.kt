@@ -38,7 +38,7 @@ class SettingsActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             addView(info)
             addView(list)
-        })
+        }.also { it.padForSystemBars() })
 
         if (permissions.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }) {
             loadCalendars()

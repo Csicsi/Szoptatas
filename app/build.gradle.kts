@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "hu.csicsi.szoptatas"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "hu.csicsi.szoptatas"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         // CI build number, so every release is a newer version (Obtainium / Android updates)
         val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionCode = 100 + build
@@ -24,6 +24,23 @@ android {
             storePassword = "szoptatas"
             keyAlias = "szoptatas"
             keyPassword = "szoptatas"
+        }
+        // Google Play upload key: only available in CI (GitHub secrets), never in the repo
+        val uploadStore = System.getenv("UPLOAD_KEYSTORE")
+        if (uploadStore != null) {
+            create("release") {
+                storeFile = file(uploadStore)
+                storePassword = System.getenv("UPLOAD_KEYSTORE_PASSWORD")
+                keyAlias = "upload"
+                keyPassword = System.getenv("UPLOAD_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 
