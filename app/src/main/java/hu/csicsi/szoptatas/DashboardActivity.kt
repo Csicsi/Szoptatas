@@ -22,6 +22,7 @@ class DashboardActivity : Activity() {
     private lateinit var content: LinearLayout
     private val rangeButtons = mutableListOf<TextView>()
     private var days = 7
+    private var selectedDay = Stats.startOfDay(System.currentTimeMillis())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,7 +87,12 @@ class DashboardActivity : Activity() {
         val timelineDays = minOf(days, 14)
         content.addView(card(
             "Etetések napi idővonala",
-            TimelineView(this).apply { set(Stats.timeline(this@DashboardActivity, timelineDays)) },
+            TimelineView(this).apply {
+                selected = selectedDay
+                set(Stats.timeline(this@DashboardActivity, timelineDays))
+                onDayClick = { selectedDay = it; render() }
+            },
+            note("Koppints egy napra a részletekhez."),
             legend(
                 TimelineView.LEFT to "szopi bal",
                 TimelineView.RIGHT to "szopi jobb",
@@ -94,6 +100,8 @@ class DashboardActivity : Activity() {
             ),
             legend(TimelineView.FORMULA to "tápszer (üveg)", TimelineView.MILK to "anyatej (üveg)"),
         ))
+
+        dayDetailCard()
 
         val gaps = Stats.feedGaps(this)
         val gapText = if (gaps.isEmpty()) "Az elmúlt 24 órában nincs elég adat." else {
@@ -144,6 +152,129 @@ class DashboardActivity : Activity() {
                 BarChartView(this).apply { set(labels, listOf(MOM to stats.map { it.momPeeMl.toFloat() })) },
             ))
         }
+    }
+
+    /** One day as a list: each feed with its minutes, and the break before the next one. */
+    private fun dayDetailCard() {
+        val today = Stats.startOfDay(System.currentTimeMillis())
+        val (before, items) = Stats.dayDetail(this, selectedDay)
+        val dayName = SimpleDateFormat("MMM d. EEEE", Locale("hu")).format(Date(selectedDay)) +
+            if (selectedDay == today) " (ma)" else ""
+
+        val nav = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            addView(navButton("‹") { selectedDay -= DAY; render() })
+            addView(TextView(this@DashboardActivity).apply {
+                text = dayName
+                textSize = 16f
+                gravity = android.view.Gravity.CENTER
+                setTextColor(getColor(R.color.text))
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(navButton("›") { if (selectedDay < today) { selectedDay += DAY; render() } }.apply {
+                alpha = if (selectedDay < today) 1f else 0.3f
+            })
+        }
+
+        val feeds = items.filter { it.bottle == null }
+        val known = feeds.filter { it.hasLength }
+        val totalMin = known.sumOf { (it.end - it.start) / 60_000 }
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(8), 0, 0) }
+        val gapsMin = mutableListOf<Long>()
+        var prev = before
+        items.forEach { item ->
+            prev?.let { p ->
+                val gap = (item.start - p.end) / 60_000
+                if (gap > 0) {
+                    gapsMin += gap
+                    list.addView(gapRow(gap))
+                }
+            }
+            list.addView(itemRow(item))
+            prev = item
+        }
+        if (items.isEmpty()) list.addView(note("Erre a napra nincs etetés rögzítve."))
+
+        val head = buildList {
+            add("${feeds.size} szopi" + if (known.isNotEmpty()) " · ${hm(totalMin)} összesen · átlag ${hm(totalMin / known.size)}" else "")
+            val bottles = items.count { it.bottle != null }
+            if (bottles > 0) add("$bottles üveg")
+            if (gapsMin.isNotEmpty()) add("átlag szünet ${hm(gapsMin.average().roundToInt().toLong())} · leghosszabb ${hm(gapsMin.max())}")
+        }.joinToString("\n")
+
+        content.addView(card("Nap részletei", nav, note(head), list))
+    }
+
+    private fun itemRow(item: TimelineItem): View {
+        val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val mins = (item.end - item.start) / 60_000
+        val color = when {
+            item.bottle != null -> if (item.bottle.startsWith("táp")) TimelineView.FORMULA else TimelineView.MILK
+            item.side == Side.LEFT -> TimelineView.LEFT
+            item.side == Side.RIGHT -> TimelineView.RIGHT
+            else -> TimelineView.UNKNOWN
+        }
+        val time = when {
+            item.bottle != null || !item.hasLength -> fmt.format(Date(item.start))
+            item.running -> "${fmt.format(Date(item.start))}–most"
+            else -> "${fmt.format(Date(item.start))}–${fmt.format(Date(item.end))}"
+        }
+        val what = when {
+            item.bottle != null -> "${item.bottle} (üveg)"
+            !item.hasLength -> "${item.side?.label ?: "szopi"} · ? p"
+            else -> "${item.side?.label ?: "szopi"} · $mins p" + if (item.running) " (fut)" else ""
+        }
+        // bar length: 60 min = full width, so long feeds stand out
+        val frac = if (item.bottle != null || !item.hasLength) 0f else (mins / 60f).coerceIn(0.04f, 1f)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, dp(4))
+            addView(TextView(this@DashboardActivity).apply {
+                text = time
+                textSize = 14f
+                setTextColor(getColor(R.color.text))
+            }, LinearLayout.LayoutParams(dp(96), LinearLayout.LayoutParams.WRAP_CONTENT))
+            addView(LinearLayout(this@DashboardActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(this@DashboardActivity).apply {
+                    text = what
+                    textSize = 14f
+                    setTextColor(getColor(R.color.text))
+                })
+                if (frac > 0f) {
+                    addView(LinearLayout(this@DashboardActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        weightSum = 1f
+                        addView(View(this@DashboardActivity).apply {
+                            background = GradientDrawable().apply { setColor(color); cornerRadius = dp(4).toFloat() }
+                        }, LinearLayout.LayoutParams(0, dp(8), frac))
+                    }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)).apply { topMargin = dp(3) })
+                } else {
+                    addView(View(this@DashboardActivity).apply {
+                        background = GradientDrawable().apply { setColor(color); shape = GradientDrawable.OVAL }
+                    }, LinearLayout.LayoutParams(dp(10), dp(10)).apply { topMargin = dp(3) })
+                }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+    }
+
+    private fun gapRow(minutes: Long) = TextView(this).apply {
+        text = "szünet ${hm(minutes)}"
+        textSize = 12f
+        // long breaks (3 h+) stand out
+        setTextColor(if (minutes >= 180) Color.parseColor("#E0892E") else getColor(R.color.muted))
+        setPadding(dp(96), dp(1), 0, dp(1))
+    }
+
+    private fun navButton(label: String, onClick: () -> Unit) = TextView(this).apply {
+        text = label
+        textSize = 24f
+        gravity = android.view.Gravity.CENTER
+        setTextColor(getColor(R.color.text))
+        background = GradientDrawable().apply { setColor(getColor(R.color.chip)); shape = GradientDrawable.OVAL }
+        setOnClickListener { onClick() }
+        layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
     }
 
     private fun weightCard() {

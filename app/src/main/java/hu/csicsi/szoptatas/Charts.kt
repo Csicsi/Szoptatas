@@ -182,6 +182,8 @@ class WeightChartView(ctx: Context) : View(ctx) {
  */
 class TimelineView(ctx: Context) : View(ctx) {
     private var days: List<TimelineDay> = emptyList()
+    var selected: Long = -1
+    var onDayClick: ((Long) -> Unit)? = null
 
     private val rowH = ctx.dpf(24f)
     private val labelW = ctx.dpf(34f)
@@ -203,6 +205,10 @@ class TimelineView(ctx: Context) : View(ctx) {
         strokeWidth = ctx.dpf(1.5f)
         color = ctx.getColor(R.color.card)
     }
+    private val highlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#D6336C")
+        alpha = 40
+    }
     private val rect = RectF()
     private val fmt = java.text.SimpleDateFormat("d. EEE", java.util.Locale("hu"))
 
@@ -215,6 +221,17 @@ class TimelineView(ctx: Context) : View(ctx) {
     override fun onMeasure(w: Int, h: Int) {
         setMeasuredDimension(MeasureSpec.getSize(w), (top + days.size * rowH + context.dpf(4f)).toInt())
     }
+
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (e.action == android.view.MotionEvent.ACTION_UP) {
+            val i = ((e.y - top) / rowH).toInt()
+            days.getOrNull(i)?.let { onDayClick?.invoke(it.dayStart) }
+            performClick()
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean = super.performClick()
 
     override fun onDraw(c: Canvas) {
         val left = labelW
@@ -231,6 +248,10 @@ class TimelineView(ctx: Context) : View(ctx) {
 
         days.forEachIndexed { i, d ->
             val cy = top + i * rowH + rowH / 2
+            if (d.dayStart == selected) {
+                rect.set(0f, cy - rowH / 2, right, cy + rowH / 2)
+                c.drawRoundRect(rect, context.dpf(6f), context.dpf(6f), highlight)
+            }
             c.drawText(fmt.format(java.util.Date(d.dayStart)), 0f, cy + context.dpf(3.5f), label)
             rect.set(left, cy - context.dpf(3f), right, cy + context.dpf(3f))
             c.drawRoundRect(rect, context.dpf(3f), context.dpf(3f), track)

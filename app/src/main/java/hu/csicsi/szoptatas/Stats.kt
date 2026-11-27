@@ -17,7 +17,10 @@ data class DayStats(
 data class WeightPoint(val time: Long, val grams: Int)
 
 /** One feeding on the timeline: breastfeed segment (side may be null) or a bottle mark. */
-data class TimelineItem(val start: Long, val end: Long, val side: Side?, val bottle: String?, val running: Boolean)
+data class TimelineItem(
+    val start: Long, val end: Long, val side: Side?, val bottle: String?, val running: Boolean,
+    val hasLength: Boolean = true, // false: hand-written feed with a single time
+)
 
 data class TimelineDay(val dayStart: Long, val items: List<TimelineItem>)
 
@@ -78,31 +81,40 @@ object Stats {
         return starts.zipWithNext { a, b -> (b - a) / 60_000 }.filter { it > 0 }
     }
 
-    /** Feeds and bottles per day for the timeline chart, newest day first. */
-    fun timeline(ctx: Context, days: Int): List<TimelineDay> {
-        val now = System.currentTimeMillis()
-        val today = startOfDay(now)
-        val from = today - (days - 1) * DAY
-        val items = Feeding.entriesSince(ctx, from - DAY).mapNotNull { e ->
-            when {
+    private fun toItem(e: Entry, now: Long): TimelineItem? = when {
                 e.title.endsWith(Feeding.RUNNING_MARK) ->
                     TimelineItem(e.start, now, Side.fromTitle(e.title), null, running = true)
                 isFinishedFeed(e) -> {
                     val r = Feeding.parsedRange(e)
                     // hand-written entry without a range: show a short tick at its time
                     val start = r?.first ?: Feeding.feedEnd(e)
-                    TimelineItem(start, r?.second ?: (start + 5 * 60_000), Side.fromTitle(e.title), null, false)
+                    TimelineItem(start, r?.second ?: (start + 5 * 60_000), Side.fromTitle(e.title), null, false, hasLength = r != null)
                 }
                 Feeding.isBottle(e.title) -> {
                     val t = Feeding.feedEnd(e)
                     TimelineItem(t, t, null, Feeding.bottleLabel(e.title), false)
                 }
                 else -> null
-            }
-        }
+    }
+
+    /** Feeds and bottles per day for the timeline chart, newest day first. */
+    fun timeline(ctx: Context, days: Int): List<TimelineDay> {
+        val now = System.currentTimeMillis()
+        val today = startOfDay(now)
+        val from = today - (days - 1) * DAY
+        val items = Feeding.entriesSince(ctx, from - DAY).mapNotNull { toItem(it, now) }
         return (0 until days).map { i ->
             val d = today - i * DAY
             TimelineDay(d, items.filter { it.end >= d && it.start < d + DAY })
         }
+    }
+
+    /** Items of one day sorted by start, plus the last item before that day (for the first break). */
+    fun dayDetail(ctx: Context, dayStart: Long): Pair<TimelineItem?, List<TimelineItem>> {
+        val now = System.currentTimeMillis()
+        val all = Feeding.entriesSince(ctx, dayStart - DAY).mapNotNull { toItem(it, now) }.sortedBy { it.start }
+        val inDay = all.filter { it.start >= dayStart && it.start < dayStart + DAY }
+        val before = all.lastOrNull { it.start < dayStart }
+        return before to inDay
     }
 }
