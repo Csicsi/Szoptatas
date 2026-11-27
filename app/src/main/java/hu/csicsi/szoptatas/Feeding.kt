@@ -34,6 +34,7 @@ enum class Side(val code: String, val label: String) {
 
 data class Session(val side: Side, val start: Long, val eventId: Long)
 data class LastFeed(val side: Side?, val end: Long)
+data class LastBottle(val label: String, val time: Long)
 data class Entry(val title: String, val start: Long, val end: Long)
 
 /**
@@ -289,6 +290,32 @@ object Feeding {
             .maxByOrNull { it.second }
             ?.let { (e, end) -> LastFeed(Side.fromTitle(e.title), end) }
     }
+
+    private val BOTTLE = Regex("""(?i)(tápszer|táp|anyatej|tej)\D{0,3}(\d+)\s*ml""")
+
+    fun isBottle(title: String) = !isFeed(title) && BOTTLE.containsMatchIn(title) &&
+        !title.contains("anya pisi", ignoreCase = true)
+
+    fun bottleLabel(title: String): String {
+        val m = BOTTLE.find(title) ?: return "üveg"
+        val kind = if (m.groupValues[1].startsWith("táp", ignoreCase = true)) "tápszer" else "anyatej"
+        return "$kind ${m.groupValues[2]} ml"
+    }
+
+    /** Latest bottle (tápszer / anyatej in ml), app-made or hand-written. */
+    fun lastBottle(ctx: Context): LastBottle? {
+        val now = System.currentTimeMillis()
+        return entriesSince(ctx, now - LOOKBACK_MS)
+            .filter { isBottle(it.title) }
+            .map { it to feedEnd(it) }
+            .filter { it.second <= now + 60_000 }
+            .maxByOrNull { it.second }
+            ?.let { (e, t) -> LastBottle(bottleLabel(e.title), t) }
+    }
+
+    /** When the baby last ate: breastfeed end or bottle, whichever is later. */
+    fun lastMealTime(ctx: Context): Long? =
+        listOfNotNull(lastFeed(ctx)?.end, lastBottle(ctx)?.time).maxOrNull()
 
     // ---- sync ----
 

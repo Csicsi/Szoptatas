@@ -82,9 +82,22 @@ class DashboardActivity : Activity() {
 
         weightCard()
 
+        // daily timeline: when feeds happened, how long, how close together
+        val timelineDays = minOf(days, 14)
+        content.addView(card(
+            "Etetések napi idővonala",
+            TimelineView(this).apply { set(Stats.timeline(this@DashboardActivity, timelineDays)) },
+            legend(
+                TimelineView.LEFT to "szopi bal",
+                TimelineView.RIGHT to "szopi jobb",
+                TimelineView.UNKNOWN to "szopi (oldal nélkül)",
+            ),
+            legend(TimelineView.FORMULA to "tápszer (üveg)", TimelineView.MILK to "anyatej (üveg)"),
+        ))
+
         val gaps = Stats.feedGaps(this)
         val gapText = if (gaps.isEmpty()) "Az elmúlt 24 órában nincs elég adat." else {
-            "Elmúlt 24 óra: ${gaps.size + 1} szopi · átlagos szünet ${hm(gaps.average().roundToInt().toLong())} · leghosszabb ${hm(gaps.max())}"
+            "Elmúlt 24 óra: ${gaps.size + 1} etetés (szopi + üveg) · átlagos szünet ${hm(gaps.average().roundToInt().toLong())} · leghosszabb ${hm(gaps.max())}"
         }
         content.addView(card(
             "Szopi naponta",

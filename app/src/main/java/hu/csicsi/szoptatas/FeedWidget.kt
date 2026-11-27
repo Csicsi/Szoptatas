@@ -79,18 +79,25 @@ class FeedWidget : AppWidgetProvider() {
                 }
                 else -> {
                     val last = Feeding.lastFeed(ctx)
-                    if (last == null) {
+                    val bottle = Feeding.lastBottle(ctx)
+                    val next = last?.side?.other()
+                    if (last == null && bottle == null) {
                         v.setTextViewText(R.id.status, ctx.getString(R.string.no_entries))
                         v.setViewVisibility(R.id.timer, View.GONE)
-                    } else {
-                        val next = last.side?.other()
+                    } else if (bottle != null && (last == null || bottle.time > last.end)) {
                         v.setTextViewText(
                             R.id.status,
-                            if (next == null) "Utolsó szopi vége ${hhmm(last.end)}" else "Utolsó: ${next.other().label}, vége ${hhmm(last.end)} → most: ${next.label}",
+                            "Üveg: ${bottle.label}, ${hhmm(bottle.time)}" + (if (next != null) " → szopi: ${next.label}" else ""),
                         )
-                        showTimerSince(v, last.end)
-                        if (next == Side.LEFT) leftBg = R.drawable.btn_suggest else if (next == Side.RIGHT) rightBg = R.drawable.btn_suggest
+                        showTimerSince(v, bottle.time)
+                    } else {
+                        v.setTextViewText(
+                            R.id.status,
+                            if (next == null) "Utolsó szopi vége ${hhmm(last!!.end)}" else "Utolsó: ${next.other().label}, vége ${hhmm(last!!.end)} → most: ${next.label}",
+                        )
+                        showTimerSince(v, last!!.end)
                     }
+                    if (next == Side.LEFT) leftBg = R.drawable.btn_suggest else if (next == Side.RIGHT) rightBg = R.drawable.btn_suggest
                 }
             }
 

@@ -24,6 +24,8 @@ data class WatchState(
     val ibuprofenHours: Int,
     val msg: String,
     val msgAt: Long,
+    val bottle: String,
+    val bottleAt: Long,
 ) {
     companion object {
         fun from(m: DataMap) = WatchState(
@@ -44,6 +46,8 @@ data class WatchState(
             ibuprofenHours = m.getInt("ibuprofenHours", 6),
             msg = m.getString("msg", ""),
             msgAt = m.getLong("msgAt"),
+            bottle = m.getString("bottle", ""),
+            bottleAt = m.getLong("bottleAt"),
         )
 
         fun read(ctx: Context, done: (WatchState?) -> Unit) {

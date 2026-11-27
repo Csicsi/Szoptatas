@@ -36,8 +36,8 @@ object FeedAlert {
             am.cancel(pending(ctx))
             return
         }
-        val last = Feeding.lastFeed(ctx) ?: return
-        val at = last.end + h * 3_600_000L
+        val lastTime = Feeding.lastMealTime(ctx) ?: return
+        val at = lastTime + h * 3_600_000L
         if (at <= System.currentTimeMillis()) {
             check(ctx)
             return
@@ -49,24 +49,24 @@ object FeedAlert {
     fun check(ctx: Context) {
         val h = hours(ctx)
         if (h <= 0 || Feeding.running(ctx) != null) return
-        val last = Feeding.lastFeed(ctx) ?: return
-        val due = last.end + h * 3_600_000L
+        val lastTime = Feeding.lastMealTime(ctx) ?: return
+        val due = lastTime + h * 3_600_000L
         val now = System.currentTimeMillis()
         if (now < due) {
             schedule(ctx)
             return
         }
-        if (prefs(ctx).getLong(KEY_NOTIFIED, 0L) == last.end) return
-        prefs(ctx).edit().putLong(KEY_NOTIFIED, last.end).apply()
+        if (prefs(ctx).getLong(KEY_NOTIFIED, 0L) == lastTime) return
+        prefs(ctx).edit().putLong(KEY_NOTIFIED, lastTime).apply()
 
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Etetés emlékeztető", NotificationManager.IMPORTANCE_HIGH))
         val open = PendingIntent.getActivity(ctx, 31, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val mins = (now - last.end) / 60_000
+        val mins = (now - lastTime) / 60_000
         val n = Notification.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle("Noel")
-            .setContentText("${mins / 60} ó ${mins % 60} p óta nem volt szopi")
+            .setContentText("${mins / 60} ó ${mins % 60} p óta nem evett (szopi vagy üveg)")
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()

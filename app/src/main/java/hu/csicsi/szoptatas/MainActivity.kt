@@ -384,20 +384,29 @@ class MainActivity : Activity() {
             if (running.side == Side.LEFT) { left = ACTIVE; leftText = Color.WHITE } else { right = ACTIVE; rightText = Color.WHITE }
         } else {
             val last = Feeding.lastFeed(this)
-            if (last == null) {
+            val bottle = Feeding.lastBottle(this)
+            val bottleNewer = bottle != null && (last == null || bottle.time > last.end)
+            val next = last?.side?.other()
+            if (last == null && bottle == null) {
                 status.text = getString(R.string.no_entries)
                 timer.stop()
                 timer.visibility = View.GONE
+            } else if (bottleNewer) {
+                // a bottle also resets the timer, but is shown as a bottle, not as breastfeeding
+                status.text = "utolsó etetés: ${bottle!!.label} (üveg), ${hhmm(bottle.time)}" +
+                    (if (next != null) " · következő szopi: ${next.label}" else "") + " · azóta eltelt"
+                showSince(bottle.time)
+                badge.text = "SZÜNET · ÜVEGBŐL ETETVE"
+                timer.setTextColor(FORMULA)
             } else {
-                val next = last.side?.other()
                 status.text = if (next == null) {
-                    "utolsó szopi vége ${hhmm(last.end)} · azóta eltelt"
+                    "utolsó szopi vége ${hhmm(last!!.end)} · azóta eltelt"
                 } else {
-                    "utolsó: ${next.other().label}, vége ${hhmm(last.end)} · következő: ${next.label} · azóta eltelt"
+                    "utolsó: ${next.other().label}, vége ${hhmm(last!!.end)} · következő: ${next.label} · azóta eltelt"
                 }
                 showSince(last.end)
-                if (next == Side.LEFT) left = c(R.color.suggest) else if (next == Side.RIGHT) right = c(R.color.suggest)
             }
+            if (next == Side.LEFT) left = c(R.color.suggest) else if (next == Side.RIGHT) right = c(R.color.suggest)
         }
         styleButton(btnLeft, left, leftText)
         styleButton(btnRight, right, rightText)

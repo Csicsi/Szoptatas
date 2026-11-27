@@ -16,6 +16,11 @@ data class DayStats(
 
 data class WeightPoint(val time: Long, val grams: Int)
 
+/** One feeding on the timeline: breastfeed segment (side may be null) or a bottle mark. */
+data class TimelineItem(val start: Long, val end: Long, val side: Side?, val bottle: String?, val running: Boolean)
+
+data class TimelineDay(val dayStart: Long, val items: List<TimelineItem>)
+
 /** Parses calendar titles (app-made and hand-written) into numbers for the dashboard. */
 object Stats {
     val FORMULA = Regex("""(?i)(tápszer|táp)\D{0,3}(\d+)\s*ml""")
@@ -62,14 +67,42 @@ object Stats {
             WEIGHT.find(e.title.trim())?.groupValues?.get(2)?.toIntOrNull()?.let { WeightPoint(e.start, it) }
         }
 
-    /** Gaps between feed starts within the last 24 h, in minutes. */
+    /** Gaps between feeding starts (breast and bottle) within the last 24 h, in minutes. */
     fun feedGaps(ctx: Context): List<Long> {
         val now = System.currentTimeMillis()
         val starts = Feeding.entriesSince(ctx, now - 2 * DAY)
-            .filter { isFinishedFeed(it) }
-            .map { Feeding.parsedRange(it)?.first ?: it.start }
+            .filter { isFinishedFeed(it) || Feeding.isBottle(it.title) }
+            .map { Feeding.parsedRange(it)?.first ?: Feeding.feedEnd(it) }
             .filter { it >= now - DAY }
             .sorted()
         return starts.zipWithNext { a, b -> (b - a) / 60_000 }.filter { it > 0 }
+    }
+
+    /** Feeds and bottles per day for the timeline chart, newest day first. */
+    fun timeline(ctx: Context, days: Int): List<TimelineDay> {
+        val now = System.currentTimeMillis()
+        val today = startOfDay(now)
+        val from = today - (days - 1) * DAY
+        val items = Feeding.entriesSince(ctx, from - DAY).mapNotNull { e ->
+            when {
+                e.title.endsWith(Feeding.RUNNING_MARK) ->
+                    TimelineItem(e.start, now, Side.fromTitle(e.title), null, running = true)
+                isFinishedFeed(e) -> {
+                    val r = Feeding.parsedRange(e)
+                    // hand-written entry without a range: show a short tick at its time
+                    val start = r?.first ?: Feeding.feedEnd(e)
+                    TimelineItem(start, r?.second ?: (start + 5 * 60_000), Side.fromTitle(e.title), null, false)
+                }
+                Feeding.isBottle(e.title) -> {
+                    val t = Feeding.feedEnd(e)
+                    TimelineItem(t, t, null, Feeding.bottleLabel(e.title), false)
+                }
+                else -> null
+            }
+        }
+        return (0 until days).map { i ->
+            val d = today - i * DAY
+            TimelineDay(d, items.filter { it.end >= d && it.start < d + DAY })
+        }
     }
 }

@@ -19,6 +19,9 @@ object WearSync {
             dataMap.putLong("start", running?.start ?: 0L)
             dataMap.putString("last", last?.let { it.side?.code ?: "?" } ?: "")
             dataMap.putLong("lastEnd", last?.end ?: 0L)
+            val bottle = if (running == null) Feeding.lastBottle(ctx) else null
+            dataMap.putString("bottle", bottle?.label ?: "")
+            dataMap.putLong("bottleAt", bottle?.time ?: 0L)
             val sum = Summary.load(ctx)
             dataMap.putInt("feeds", sum.feeds)
             dataMap.putLong("feedMinutes", sum.feedMinutes)

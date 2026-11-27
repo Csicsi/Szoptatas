@@ -28,6 +28,7 @@ import java.util.Locale
 private data class TileState(
     val running: String, val start: Long, val last: String, val lastEnd: Long,
     val msg: String, val msgAt: Long,
+    val bottle: String = "", val bottleAt: Long = 0L,
 )
 
 private fun label(code: String) = when (code) {
@@ -77,6 +78,7 @@ class FeedTileService : TileService() {
             pending != null -> "${if (pending == "left") "Bal" else "Jobb"} indul…"
             state == null -> "Nincs kapcsolat a telefonnal"
             state.running.isNotEmpty() -> "${label(state.running)} · ${since(state.start)}"
+            state.bottleAt > state.lastEnd -> "Szünet · ${since(state.bottleAt)} (üveg)"
             state.last.isNotEmpty() -> "Szünet · ${since(state.lastEnd)}" +
                 (if (state.last == "L" || state.last == "R") " (${label(state.last)})" else "")
             else -> "Még nincs bejegyzés"
@@ -218,6 +220,7 @@ class FeedTileService : TileService() {
                                 m.getString("running", ""), m.getLong("start"),
                                 m.getString("last", ""), m.getLong("lastEnd"),
                                 m.getString("msg", ""), m.getLong("msgAt"),
+                                m.getString("bottle", ""), m.getLong("bottleAt"),
                             )
                         }
                     }

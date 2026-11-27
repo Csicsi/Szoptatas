@@ -170,8 +170,13 @@ class NoelActivity : Activity(), DataClient.OnDataChangedListener {
             status.text = since(s.start)
             if (s.running == "L") left = ACTIVE else right = ACTIVE
         } else {
-            setBadge("SZÜNET", false)
-            status.text = if (s.lastEnd > 0) since(s.lastEnd) else "–"
+            if (s.bottleAt > s.lastEnd) {
+                setBadge("SZÜNET · ÜVEG", false)
+                status.text = "${since(s.bottleAt)}\n${s.bottle}"
+            } else {
+                setBadge("SZÜNET", false)
+                status.text = if (s.lastEnd > 0) since(s.lastEnd) else "–"
+            }
             if (s.last == "L") right = SUGGEST else if (s.last == "R") left = SUGGEST
         }
         btnLeft.background = rounded(left)

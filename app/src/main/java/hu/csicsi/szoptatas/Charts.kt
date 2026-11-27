@@ -175,3 +175,93 @@ class WeightChartView(ctx: Context) : View(ctx) {
         }
     }
 }
+
+/**
+ * One row per day (newest on top), 0–24 h across. Breastfeeds are bars coloured by side,
+ * bottles are dots, so clusters and gaps are visible at a glance.
+ */
+class TimelineView(ctx: Context) : View(ctx) {
+    private var days: List<TimelineDay> = emptyList()
+
+    private val rowH = ctx.dpf(24f)
+    private val labelW = ctx.dpf(34f)
+    private val top = ctx.dpf(16f)
+
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ctx.getColor(R.color.chip) }
+    private val grid = Paint().apply {
+        color = ctx.getColor(R.color.muted)
+        alpha = 60
+        strokeWidth = ctx.dpf(1f)
+    }
+    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = ctx.dpf(10f)
+        color = ctx.getColor(R.color.muted)
+    }
+    private val bar = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = ctx.dpf(1.5f)
+        color = ctx.getColor(R.color.card)
+    }
+    private val rect = RectF()
+    private val fmt = java.text.SimpleDateFormat("d. EEE", java.util.Locale("hu"))
+
+    fun set(days: List<TimelineDay>) {
+        this.days = days
+        requestLayout()
+        invalidate()
+    }
+
+    override fun onMeasure(w: Int, h: Int) {
+        setMeasuredDimension(MeasureSpec.getSize(w), (top + days.size * rowH + context.dpf(4f)).toInt())
+    }
+
+    override fun onDraw(c: Canvas) {
+        val left = labelW
+        val right = width - context.dpf(4f)
+        val dayMs = 24f * 60 * 60 * 1000
+        fun x(dayStart: Long, t: Long) = left + (right - left) * ((t - dayStart).coerceIn(0, dayMs.toLong()) / dayMs)
+
+        // hour grid
+        for (h in 0..24 step 3) {
+            val gx = left + (right - left) * h / 24f
+            c.drawLine(gx, top - context.dpf(2f), gx, top + days.size * rowH, grid)
+            if (h % 6 == 0) c.drawText("$h", gx - context.dpf(3f), top - context.dpf(5f), label)
+        }
+
+        days.forEachIndexed { i, d ->
+            val cy = top + i * rowH + rowH / 2
+            c.drawText(fmt.format(java.util.Date(d.dayStart)), 0f, cy + context.dpf(3.5f), label)
+            rect.set(left, cy - context.dpf(3f), right, cy + context.dpf(3f))
+            c.drawRoundRect(rect, context.dpf(3f), context.dpf(3f), track)
+
+            d.items.filter { it.bottle == null }.forEach { f ->
+                bar.color = when (f.side) {
+                    Side.LEFT -> LEFT
+                    Side.RIGHT -> RIGHT
+                    null -> UNKNOWN
+                }
+                if (f.running) bar.alpha = 170
+                val x0 = x(d.dayStart, f.start)
+                val x1 = maxOf(x(d.dayStart, f.end), x0 + context.dpf(3f))
+                rect.set(x0, cy - context.dpf(7f), x1, cy + context.dpf(7f))
+                c.drawRoundRect(rect, context.dpf(4f), context.dpf(4f), bar)
+                bar.alpha = 255
+            }
+            d.items.filter { it.bottle != null }.forEach { b ->
+                bar.color = if (b.bottle!!.startsWith("táp")) FORMULA else MILK
+                val bx = x(d.dayStart, b.start)
+                c.drawCircle(bx, cy, context.dpf(5f), bar)
+                c.drawCircle(bx, cy, context.dpf(5f), ring)
+            }
+        }
+    }
+
+    companion object {
+        val LEFT = Color.parseColor("#D6336C")
+        val RIGHT = Color.parseColor("#8E4FB8")
+        val UNKNOWN = Color.parseColor("#B07A93")
+        val FORMULA = Color.parseColor("#3D7EA6")
+        val MILK = Color.parseColor("#E8A0BC")
+    }
+}
