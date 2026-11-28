@@ -99,6 +99,7 @@ class DashboardActivity : Activity() {
                 TimelineView.UNKNOWN to "szopi (oldal nélkül)",
             ),
             legend(TimelineView.FORMULA to "tápszer (üveg)", TimelineView.MILK to "anyatej (üveg)"),
+            legend(LONG_GAP to "szünet 2,5 ó felett"),
         ))
 
         dayDetailCard()
@@ -199,6 +200,8 @@ class DashboardActivity : Activity() {
             add("${feeds.size} szopi" + if (known.isNotEmpty()) " · ${hm(totalMin)} összesen · átlag ${hm(totalMin / known.size)}" else "")
             val bottles = items.count { it.bottle != null }
             if (bottles > 0) add("$bottles üveg")
+            val longGaps = gapsMin.count { it >= LONG_GAP_MIN }
+            if (longGaps > 0) add("$longGaps hosszú szünet (2,5 ó+) · összesen ${hm(gapsMin.filter { it >= LONG_GAP_MIN }.sum())}")
             if (gapsMin.isNotEmpty()) add("átlag szünet ${hm(gapsMin.average().roundToInt().toLong())} · leghosszabb ${hm(gapsMin.max())}")
         }.joinToString("\n")
 
@@ -259,12 +262,27 @@ class DashboardActivity : Activity() {
         }
     }
 
-    private fun gapRow(minutes: Long) = TextView(this).apply {
-        text = "szünet ${hm(minutes)}"
-        textSize = 12f
-        // long breaks (3 h+) stand out
-        setTextColor(if (minutes >= 180) Color.parseColor("#E0892E") else getColor(R.color.muted))
-        setPadding(dp(96), dp(1), 0, dp(1))
+    /** Breaks of 2.5 h+ are marked orange: a rough way to spot the longer naps. */
+    private fun gapRow(minutes: Long): View {
+        val long = minutes >= LONG_GAP_MIN
+        val label = TextView(this).apply {
+            text = if (long) "hosszú szünet ${hm(minutes)}" else "szünet ${hm(minutes)}"
+            textSize = if (long) 13f else 12f
+            if (long) {
+                setTextColor(Color.WHITE)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setPadding(dp(10), dp(3), dp(10), dp(3))
+                background = GradientDrawable().apply { setColor(LONG_GAP); cornerRadius = dp(10).toFloat() }
+            } else {
+                setTextColor(getColor(R.color.muted))
+            }
+        }
+        return LinearLayout(this).apply {
+            setPadding(dp(96), dp(2), 0, dp(2))
+            addView(label, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+            ))
+        }
     }
 
     private fun navButton(label: String, onClick: () -> Unit) = TextView(this).apply {
@@ -381,6 +399,8 @@ class DashboardActivity : Activity() {
     private companion object {
         const val DAY = 24L * 60 * 60 * 1000
         val ACCENT = Color.parseColor("#D6336C")
+        val LONG_GAP = Color.parseColor("#E0892E")
+        const val LONG_GAP_MIN = 150L
         val PEE = Color.parseColor("#F2C14E")
         val POO = Color.parseColor("#8B5E3C")
         val FORMULA = Color.parseColor("#3D7EA6")

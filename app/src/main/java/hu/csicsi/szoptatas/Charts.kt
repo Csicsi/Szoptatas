@@ -209,6 +209,11 @@ class TimelineView(ctx: Context) : View(ctx) {
         color = Color.parseColor("#D6336C")
         alpha = 40
     }
+    private val longGap = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#E0892E")
+        strokeWidth = ctx.dpf(4f)
+        strokeCap = Paint.Cap.ROUND
+    }
     private val rect = RectF()
     private val fmt = java.text.SimpleDateFormat("d. EEE", java.util.Locale("hu"))
 
@@ -256,6 +261,13 @@ class TimelineView(ctx: Context) : View(ctx) {
             rect.set(left, cy - context.dpf(3f), right, cy + context.dpf(3f))
             c.drawRoundRect(rect, context.dpf(3f), context.dpf(3f), track)
 
+            // long breaks (2.5 h+) as an orange line, to spot the longer naps
+            val sorted = d.items.sortedBy { it.start }
+            sorted.zipWithNext { a, b ->
+                if (b.start - a.end >= 150 * 60_000L) {
+                    c.drawLine(x(d.dayStart, a.end), cy, x(d.dayStart, b.start), cy, longGap)
+                }
+            }
             d.items.filter { it.bottle == null }.forEach { f ->
                 bar.color = when (f.side) {
                     Side.LEFT -> LEFT
